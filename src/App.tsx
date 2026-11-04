@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { GameClient } from './lib/gameClient';
 import confetti from 'canvas-confetti';
 import { Board } from './components/Board';
 import { ThreeBoardScene } from './components/ThreeBoardScene';
@@ -13,11 +13,10 @@ import { GameLog } from './components/GameLog';
 import { AVAILABLE_TOKENS, PLAYER_COLORS, BOARD_TILES } from './data/monopolyBoard';
 import { BoardTile, GameState, LobbyRoom, Player, PlayerToken } from './types/game';
 import { playSound, toggleSound, isSoundMuted } from './utils/sound';
-import { testFirebaseConnection, recordGameVictory } from './lib/firebase';
 import { LeaderboardModal } from './components/LeaderboardModal';
 
 export default function App() {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [socket, setSocket] = useState<GameClient | null>(null);
   const [view, setView] = useState<'MENU' | 'LOBBY' | 'GAME'>('MENU');
 
   // Player identity setup in Menu
@@ -43,18 +42,13 @@ export default function App() {
   const [isPropertyModalOpen, setIsPropertyModalOpen] = useState(false);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
 
-  // Initialize socket
+  // Connect to the game API
   useEffect(() => {
-    const s = io({
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-    });
-
-    s.on('connect', () => {
-      // connected to server
-      testFirebaseConnection();
-    });
+    const s = new GameClient();
+    let gameStarted = false;
+    let victoryShown = false;
+    s.on('error', (message: string) => { setErrorMessage(message); setIsRollingDice(false); });
+    s.on('lobby:joined', () => setView('LOBBY'));
 
     s.on('lobby:update', (updatedLobby: LobbyRoom) => {
       setLobbyData(updatedLobby);
@@ -64,39 +58,24 @@ export default function App() {
 
     s.on('game:started', () => {
       setView('GAME');
-      playSound('money');
+      if (!gameStarted) playSound('money');
+      gameStarted = true;
     });
 
     s.on('game:state', (state: GameState) => {
       setGameState(state);
       setIsRollingDice(false);
-      if (state.phase === 'GAME_OVER') {
+      const me = state.players.find(p => p.id === s.id);
+      if (me) setCurrentPlayer(me);
+      if (state.phase !== 'GAME_OVER') victoryShown = false;
+      if (state.phase === 'GAME_OVER' && !victoryShown) {
+        victoryShown = true;
         confetti({
           particleCount: 150,
           spread: 80,
           origin: { y: 0.6 },
         });
         playSound('victory');
-
-        // Persist victory to Firebase Firestore
-        const winner = state.winnerId
-          ? state.players.find((p) => p.id === state.winnerId)
-          : state.players.find((p) => !p.bankrupt);
-        if (winner) {
-          const totalPropVal = Object.values(state.properties)
-            .filter((p) => p.ownerId === winner.id)
-            .reduce((sum, p) => {
-              const tile = BOARD_TILES[p.tileId];
-              return sum + (tile?.price || 0) + (p.houses || 0) * (tile?.houseCost || 50);
-            }, 0);
-          recordGameVictory(
-            winner.name,
-            winner.money + totalPropVal,
-            state.roomId,
-            state.logs?.length || 1,
-            state.players.length
-          );
-        }
       }
     });
 
@@ -104,6 +83,7 @@ export default function App() {
       setView('MENU');
       setLobbyData(null);
       setCurrentPlayer(null);
+      setGameState(null);
       setErrorMessage('You were removed from the lobby');
     });
 
@@ -214,9 +194,12 @@ export default function App() {
           setCurrentPlayer(res.player);
 
           // Add 3 bots sequentially then start
-          socket.emit('lobby:add_bot', { roomId }, () => {
-            socket.emit('lobby:add_bot', { roomId }, () => {
-              socket.emit('lobby:add_bot', { roomId }, () => {
+          socket.emit('lobby:add_bot', { roomId }, (result: any) => {
+            if (!result.success) return;
+            socket.emit('lobby:add_bot', { roomId }, (result: any) => {
+              if (!result.success) return;
+              socket.emit('lobby:add_bot', { roomId }, (result: any) => {
+              if (!result.success) return;
                 socket.emit('game:start', { roomId });
               });
             });
@@ -259,6 +242,7 @@ export default function App() {
   };
 
   const handleLeaveLobby = () => {
+    if (lobbyData) socket?.emit('lobby:leave', { roomId: lobbyData.roomId });
     setView('MENU');
     setLobbyData(null);
     setCurrentPlayer(null);

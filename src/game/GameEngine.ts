@@ -59,6 +59,18 @@ export class GameEngine {
     this.addLog('Game started! Initial cash: $1500. Good luck!', 'system');
   }
 
+  public snapshot() {
+    return { state: this.state, chanceDeck: this.chanceDeck, communityDeck: this.communityDeck };
+  }
+
+  public static restore(snapshot: ReturnType<GameEngine['snapshot']>): GameEngine {
+    const engine = new GameEngine(snapshot.state.roomId, []);
+    engine.state = snapshot.state;
+    engine.chanceDeck = snapshot.chanceDeck;
+    engine.communityDeck = snapshot.communityDeck;
+    return engine;
+  }
+
   public getState(): GameState {
     return this.state;
   }
@@ -476,6 +488,7 @@ export class GameEngine {
   }
 
   public buyProperty(playerId: string, tileId: number): { success: boolean; message?: string } {
+    if (this.state.phase !== 'ACTION') return { success: false, message: 'Cannot do this in the current phase' };
     const player = this.getActivePlayer();
     if (!player || player.id !== playerId) {
       return { success: false, message: 'Not your turn' };
@@ -505,6 +518,7 @@ export class GameEngine {
   }
 
   public declineProperty(playerId: string): { success: boolean; message?: string } {
+    if (this.state.phase !== 'ACTION') return { success: false, message: 'Cannot do this in the current phase' };
     const player = this.getActivePlayer();
     if (!player || player.id !== playerId) {
       return { success: false, message: 'Not your turn' };
@@ -687,6 +701,13 @@ export class GameEngine {
     if (!fromPlayer || !toPlayer) return { success: false, message: 'Invalid players in trade' };
     if (fromPlayer.money < offer.offeredMoney) return { success: false, message: 'Insufficient cash offered' };
 
+    if (this.state.phase === 'GAME_OVER' || this.state.activeTrade || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.id === toPlayer.id ||
+        ![offer.offeredMoney, offer.requestedMoney].every((n) => Number.isSafeInteger(n) && n >= 0) ||
+        ![offer.offeredProperties, offer.requestedProperties].every((ids) => Array.isArray(ids) && new Set(ids).size === ids.length) ||
+        [...offer.offeredProperties, ...offer.requestedProperties].some((id) => this.state.properties[id]?.houses > 0)) {
+      return { success: false, message: 'Invalid trade offer' };
+    }
+
     // Verify properties owned
     const allOfferedOwned = offer.offeredProperties.every(
       (id) => this.state.properties[id]?.ownerId === fromPlayer.id
@@ -732,6 +753,13 @@ export class GameEngine {
       this.state.activeTrade = null;
       this.addLog(`${toPlayer.name} rejected the trade offer.`, 'trade', toPlayer);
       return { success: true };
+    }
+
+    if (fromPlayer.bankrupt || toPlayer.bankrupt ||
+        !trade.offeredProperties.every((id) => this.state.properties[id]?.ownerId === fromPlayer.id && !this.state.properties[id].houses) ||
+        !trade.requestedProperties.every((id) => this.state.properties[id]?.ownerId === toPlayer.id && !this.state.properties[id].houses)) {
+      this.state.activeTrade = null;
+      return { success: false, message: 'Trade assets have changed' };
     }
 
     // Check balances
@@ -792,10 +820,13 @@ export class GameEngine {
 
   // End turn
   public endTurn(playerId: string): { success: boolean; message?: string } {
+    if (this.state.phase !== 'END_TURN') return { success: false, message: 'Cannot do this in the current phase' };
     const activePlayer = this.getActivePlayer();
     if (!activePlayer || activePlayer.id !== playerId) {
       return { success: false, message: 'Not your turn' };
     }
+
+    if (activePlayer.money < 0) return { success: false, message: 'You must settle your debt or declare bankruptcy' };
 
     // If active player rolled doubles and is not in jail and doublesCount < 3, roll again!
     if (
@@ -860,6 +891,9 @@ export class GameEngine {
       this.state.winnerId = nonBankrupt[0]?.id;
       this.addLog(`🎉 ${nonBankrupt[0]?.name} is the last tycoon standing and wins!`, 'system');
     } else if (this.state.players[this.state.activePlayerIndex]?.id === playerId) {
+      this.state.doublesCount = 0;
+      this.state.hasRolled = false;
+      this.state.pendingCard = null;
       this.advanceToNextPlayer();
       this.state.phase = 'ROLL';
     }
@@ -872,6 +906,15 @@ export class GameEngine {
     const activePlayer = this.getActivePlayer();
     if (!activePlayer || !activePlayer.isBot || activePlayer.bankrupt) {
       return false;
+    }
+
+    if (activePlayer.money < 0) {
+      const owned = Object.values(this.state.properties).filter((p) => p.ownerId === activePlayer.id);
+      const built = owned.filter((p) => p.houses > 0).sort((a, b) => b.houses - a.houses);
+      for (const prop of built) if (this.sellHouse(activePlayer.id, prop.tileId).success) return true;
+      for (const prop of owned) if (!prop.mortgaged && this.mortgageProperty(activePlayer.id, prop.tileId).success) return true;
+      this.declareBankruptcy(activePlayer.id);
+      return true;
     }
 
     if (this.state.phase === 'ROLL') {

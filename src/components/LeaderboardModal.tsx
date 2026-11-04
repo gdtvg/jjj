@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { fetchGlobalLeaderboard, LeaderboardRecord } from '../lib/firebase';
+import { fetchGlobalLeaderboard, LeaderboardRecord } from '../lib/leaderboard';
 import { playSound } from '../utils/sound';
 
 interface LeaderboardModalProps {
@@ -9,15 +9,16 @@ interface LeaderboardModalProps {
 
 export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onClose }) => {
   const [records, setRecords] = useState<LeaderboardRecord[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (isOpen) {
       setLoading(true);
+      setError(null);
       fetchGlobalLeaderboard().then((data) => {
         setRecords(data);
-        setLoading(false);
-      });
+      }).catch(() => setError('Rangliste konnte nicht geladen werden. Bitte versuche es erneut.')).finally(() => setLoading(false));
     }
   }, [isOpen]);
 
@@ -34,7 +35,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
               <h2 className="text-xl font-black text-amber-300 tracking-wide uppercase">
                 Global High Rollers
               </h2>
-              <p className="text-xs text-slate-400">Firebase Firestore Cloud Leaderboard</p>
+              <p className="text-xs text-slate-400">Global Leaderboard</p>
             </div>
           </div>
           <button
@@ -53,9 +54,9 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <div className="w-8 h-8 border-3 border-amber-400 border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs text-slate-400">Syncing with Cloud Firestore...</span>
+              <span className="text-xs text-slate-400">Loading leaderboard...</span>
             </div>
-          ) : records.length === 0 ? (
+          ) : error ? (<p role="alert" className="text-sm text-red-300">{error}</p>) : records.length === 0 ? (
             <div className="text-center py-10 space-y-2">
               <span className="text-4xl block">🎩</span>
               <p className="text-sm font-bold text-slate-300">No Hall of Fame records yet!</p>
@@ -118,7 +119,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
         <div className="p-4 bg-slate-950/80 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Firestore Persistent Storage</span>
+            <span>Global match results</span>
           </span>
           <button
             onClick={() => {
