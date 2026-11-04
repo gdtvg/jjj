@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Leaderboard entries: anyone can read high scores; creation/updates must have valid schema
+    match /leaderboard/{playerId} {
+      allow read: if true;
+      allow write: if request.resource.data.username is string
+                   && request.resource.data.wins is number
+                   && request.resource.data.gamesPlayed is number;
+    }
+
+    // Match history: anyone can read records; creates must have valid match summary data
+    match /matchHistory/{matchId} {
+      allow read: if true;
+      allow create: if request.resource.data.roomCode is string
+                    && request.resource.data.winnerName is string
+                    && request.resource.data.winnerNetWorth is number;
+      allow update, delete: if false;
+    }
+
+    // User profiles: players can read profiles and save their own stats
+    match /userProfiles/{userId} {
+      allow read: if true;
+      allow write: if request.resource.data.username is string;
+    }
+  }
+}

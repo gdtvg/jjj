@@ -1,0 +1,6 @@
+{
+  "name": "Monopoly Realtime Arena",
+  "description": "Multiplayer real-time Monopoly board game with interactive lobbies, trading, property development, and server-authoritative state.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

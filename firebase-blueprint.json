@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with game statistics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "favoriteToken": { "type": "string" },
+        "totalGames": { "type": "number" },
+        "wins": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "username"]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Global leaderboard entry for high-performing Monopoly players",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "wins": { "type": "number" },
+        "gamesPlayed": { "type": "number" },
+        "totalCashEarned": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "username", "wins", "gamesPlayed"]
+    },
+    "MatchHistory": {
+      "title": "MatchHistory",
+      "description": "Completed match summary and historical records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "roomCode": { "type": "string" },
+        "winnerName": { "type": "string" },
+        "winnerNetWorth": { "type": "number" },
+        "turnsPlayed": { "type": "number" },
+        "playersCount": { "type": "number" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "roomCode", "winnerName", "winnerNetWorth"]
+    }
+  },
+  "firestore": {
+    "/userProfiles/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Individual player profiles and preferences"
+    },
+    "/leaderboard/{playerId}": {
+      "schema": { "$ref": "#/entities/LeaderboardEntry" },
+      "description": "Global high-score leaderboard"
+    },
+    "/matchHistory/{matchId}": {
+      "schema": { "$ref": "#/entities/MatchHistory" },
+      "description": "Public match records archive"
+    }
+  }
+}
