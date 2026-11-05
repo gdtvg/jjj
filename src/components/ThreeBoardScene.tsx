@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { BOARD_TILES } from '../data/monopolyBoard';
 import { BoardTile, GameState, PlayerToken } from '../types/game';
-import { getTileTexture, getCardDeckMaterials, getFeltTexture } from '../utils/tileTextureGenerator';
+import { getCardDeckMaterials, getFeltTexture } from '../utils/tileTextureGenerator';
+import { createBoardTileMesh } from '../utils/propertyModel';
 import { ASSETS } from '../assets/assetMap';
 import { Camera, LocateFixed, Move, ScanLine, Dices, RotateCcw } from 'lucide-react';
 import { tokenRestHeight } from '../utils/boardLayout';
@@ -559,39 +560,9 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
 
     // 6. Build ALL 40 Tiles with High-Resolution Canvas Textures
     const tileMeshes: THREE.Mesh[] = [];
-    const sideTileMat = new THREE.MeshStandardMaterial({
-      color: 0xf5f5f4,
-      roughness: 0.35,
-      metalness: 0.05,
-    });
-
     BOARD_TILES.forEach((tile) => {
       const { x, z, rotation } = getTile3DPosition(tile.id);
-      const isCorner = tile.id % 10 === 0;
-      const tileWidth = isCorner ? 1.85 : 1.25;
-      const tileDepth = isCorner ? 1.85 : 1.75;
-
-      const topTexture = getTileTexture(tile);
-      const topTileMat = new THREE.MeshStandardMaterial({
-        map: topTexture,
-        roughness: 0.3,
-        metalness: 0.05,
-      });
-
-      // Materials array for BoxGeometry faces: [+x, -x, +y (top), -y (bottom), +z, -z]
-      const tileMaterials = [
-        sideTileMat,
-        sideTileMat,
-        topTileMat,
-        sideTileMat,
-        sideTileMat,
-        sideTileMat,
-      ];
-
-      const tileSlab = new THREE.Mesh(
-        new THREE.BoxGeometry(tileWidth, 0.1, tileDepth),
-        tileMaterials
-      );
+      const tileSlab = createBoardTileMesh(tile);
       tileSlab.position.set(x, 0.05, z);
       tileSlab.rotation.y = rotation;
       tileSlab.receiveShadow = true;
