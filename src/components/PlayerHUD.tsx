@@ -1,4 +1,5 @@
 import React from 'react';
+import { Landmark, Handshake, Dices, Banknote, ArrowRight } from 'lucide-react';
 import { BOARD_TILES } from '../data/monopolyBoard';
 import { GameState, Player } from '../types/game';
 import { playSound } from '../utils/sound';
@@ -31,8 +32,8 @@ export const PlayerScoreboard: React.FC<PlayerScoreboardProps> = ({
   return (
     <div className="flex flex-col gap-2.5 w-full">
       <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-slate-300 px-1">
-        <span>Tycoon Leaderboard</span>
-        <span>Net Worth</span>
+        <span>Spieler am Tisch</span>
+        <span>Vermögen</span>
       </div>
       <div className="space-y-2 overflow-y-auto max-h-56 pr-0.5">
         {gameState.players.map((player) => {
@@ -48,7 +49,7 @@ export const PlayerScoreboard: React.FC<PlayerScoreboardProps> = ({
                 player.bankrupt
                   ? 'bg-slate-950/40 border-slate-900 opacity-40 grayscale'
                   : isActive
-                  ? 'bg-white/15 border-amber-400/80 shadow-[0_0_20px_rgba(245,158,11,0.35)] ring-1 ring-amber-400'
+                  ? 'bg-amber-200/5 border-amber-200/40'
                   : 'bg-white/5 border-white/10 hover:bg-white/10'
               }`}
             >
@@ -69,16 +70,16 @@ export const PlayerScoreboard: React.FC<PlayerScoreboardProps> = ({
                     </span>
                     {isMe && (
                       <span className="text-[8px] font-black text-amber-300 bg-amber-950/80 border border-amber-500/40 px-1 rounded-xs">
-                        YOU
+                        DU
                       </span>
                     )}
                     {isActive && (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      <span className="w-2 h-2 rounded-full bg-amber-200" />
                     )}
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                    <span>{stats.propCount} props</span>
-                    {stats.houseCount > 0 && <span>· {stats.houseCount} buildings</span>}
+                    <span>{stats.propCount} Grundstücke</span>
+                    {stats.houseCount > 0 && <span>· {stats.houseCount} Gebäude</span>}
                     {player.inJail && (
                       <span className="text-amber-400 font-bold">· 🔒 Jail</span>
                     )}
@@ -99,7 +100,7 @@ export const PlayerScoreboard: React.FC<PlayerScoreboardProps> = ({
                   ${player.money}
                 </div>
                 <div className="text-[9px] font-mono text-slate-400">
-                  Total: ${totalWealth}
+                  Gesamt: ${totalWealth}
                 </div>
               </div>
             </div>
@@ -113,6 +114,7 @@ export const PlayerScoreboard: React.FC<PlayerScoreboardProps> = ({
 interface ActionBarProps {
   gameState: GameState;
   currentPlayer: Player;
+  activity?: 'rolling' | 'result' | 'moving' | null;
   onRollDice: () => void;
   onBuyProperty: (tileId: number) => void;
   onDeclineProperty: () => void;
@@ -128,6 +130,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
   gameState,
   currentPlayer,
   onRollDice,
+  activity,
   onBuyProperty,
   onDeclineProperty,
   onPayJailFine,
@@ -143,7 +146,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
   const currentTileProp = currentTile ? gameState.properties[currentTile.id] : null;
 
   return (
-    <div className="backdrop-blur-md bg-white/10 border border-white/15 rounded-2xl p-3.5 shadow-2xl flex flex-wrap items-center justify-between gap-3">
+    <div className="game-actionbar backdrop-blur-md bg-white/10 border border-white/15 rounded-2xl p-3.5 shadow-2xl flex flex-wrap items-center justify-between gap-3">
       {/* Left: Turn Status Banner */}
       <div className="flex items-center gap-3">
         <div
@@ -158,23 +161,24 @@ export const ActionBar: React.FC<ActionBarProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase font-black tracking-wider text-slate-200">
-              {isMyTurn ? 'Your Turn' : `${activePlayer?.name}'s Turn`}
+              {isMyTurn ? 'Du bist am Zug' : `${activePlayer?.name} ist am Zug`}
             </span>
             <span className="text-[9px] font-bold uppercase tracking-wider bg-black/40 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full">
-              Phase: {gameState.phase}
+              {activity === 'rolling' ? 'Würfelwurf' : activity === 'result' ? 'Ergebnis' : activity === 'moving' ? 'Bewegung' : ({ LOBBY: 'Warteraum', ROLL: 'Würfeln', ACTION: 'Grundstück', RESOLVING_CARD: 'Ereignis', END_TURN: 'Zug abschließen', GAME_OVER: 'Spielende' }[gameState.phase])}
             </span>
           </div>
-          <div className="text-xs font-semibold text-slate-100 mt-0.5">
-            {gameState.phase === 'ROLL' &&
-              (isMyTurn ? 'Roll the dice to move around the board!' : 'Waiting for dice roll...')}
-            {gameState.phase === 'ACTION' && currentTile && (
+          <div className="text-xs font-semibold text-slate-100 mt-0.5" role="status">
+            {activity && (activity === 'rolling' ? 'Die Kamera zeigt den Wurf auf dem Tisch.' : activity === 'result' ? 'Die Würfel sind gefallen.' : 'Die Figur zieht zum nächsten Feld.')}
+            {!activity && gameState.phase === 'ROLL' &&
+              (isMyTurn ? 'Würfle, um deine Figur zu bewegen.' : 'Wartet auf den Würfelwurf …')}
+            {!activity && gameState.phase === 'ACTION' && currentTile && (
               <span>
-                Landed on <b className="text-amber-400">{currentTile.name}</b> (${currentTile.price})
+                Gelandet auf <b className="text-amber-400">{currentTile.name}</b> (${currentTile.price})
               </span>
             )}
-            {gameState.phase === 'RESOLVING_CARD' && 'Drawn card needs resolution...'}
-            {gameState.phase === 'END_TURN' &&
-              (isMyTurn ? 'Manage assets or pass the dice.' : 'Finishing turn actions...')}
+            {!activity && gameState.phase === 'RESOLVING_CARD' && 'Bestätige die gezogene Ereigniskarte.'}
+            {!activity && gameState.phase === 'END_TURN' &&
+              (isMyTurn ? 'Verwalte deinen Besitz oder beende deinen Zug.' : 'Der Zug wird abgeschlossen …')}
             {gameState.phase === 'GAME_OVER' && 'Champion declared!'}
           </div>
         </div>
@@ -190,7 +194,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           }}
           className="cursor-pointer px-3.5 py-2 bg-white/10 hover:bg-white/20 text-slate-100 border border-white/20 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 active:scale-95"
         >
-          <span>🏛️</span> Deeds
+          <Landmark size={15} /> Besitz
         </button>
 
         <button
@@ -200,7 +204,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           }}
           className="cursor-pointer px-3.5 py-2 bg-white/10 hover:bg-white/20 text-slate-100 border border-white/20 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 active:scale-95"
         >
-          <span>🤝</span> Trade
+          <Handshake size={15} /> Handeln
         </button>
 
         {/* Turn-specific Buttons */}
@@ -218,7 +222,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
                         }}
                         className="cursor-pointer px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
                       >
-                        Pay $50 Bail
+                        Kaution · $50
                       </button>
                     )}
                     {currentPlayer.getOutOfJailCards > 0 && (
@@ -229,7 +233,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
                         }}
                         className="cursor-pointer px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
                       >
-                        Use Free Card
+                        Freikarte nutzen
                       </button>
                     )}
                   </>
@@ -240,9 +244,9 @@ export const ActionBar: React.FC<ActionBarProps> = ({
                     playSound('roll');
                     onRollDice();
                   }}
-                  className="cursor-pointer px-6 py-2.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-[0_4px_15px_rgba(245,158,11,0.5)] active:scale-95 transition-all flex items-center gap-1.5 animate-pulse"
+                  className="cursor-pointer px-6 py-2.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-[0_4px_15px_rgba(245,158,11,0.5)] active:scale-95 transition-all flex items-center gap-1.5"
                 >
-                  <span className="text-base">🎲</span> Roll Dice
+                  <Dices size={17} /> Würfeln
                 </button>
               </>
             )}
@@ -261,7 +265,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
                       : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                   }`}
                 >
-                  <span>💰</span> Buy for ${currentTile.price}
+                  <Banknote size={15} /> Kaufen · ${currentTile.price}
                 </button>
                 <button
                   onClick={() => {
@@ -270,7 +274,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
                   }}
                   className="cursor-pointer px-4 py-2.5 bg-white/10 hover:bg-white/20 text-slate-300 border border-white/20 rounded-xl text-xs font-bold transition-all active:scale-95"
                 >
-                  Decline
+                  Verzichten
                 </button>
               </>
             )}
@@ -283,7 +287,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
                 }}
                 className="cursor-pointer px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-blue-500/30 active:scale-95 transition-all flex items-center gap-1.5"
               >
-                End Turn →
+                Zug beenden <ArrowRight size={15} />
               </button>
             )}
 
@@ -295,7 +299,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
                 }}
                 className="cursor-pointer px-4 py-2.5 bg-rose-700 hover:bg-rose-600 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-colors shadow-md"
               >
-                Declare Bankruptcy
+                Bankrott erklären
               </button>
             )}
           </>

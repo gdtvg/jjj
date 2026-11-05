@@ -4,32 +4,34 @@ import { BOARD_TILES } from '../data/monopolyBoard';
 import { BoardTile, GameState, PlayerToken } from '../types/game';
 import { getTileTexture, getCardDeckMaterials, getFeltTexture } from '../utils/tileTextureGenerator';
 import { ASSETS } from '../assets/assetMap';
+import { Camera, LocateFixed, Move, ScanLine, Dices, RotateCcw } from 'lucide-react';
+import { tokenRestHeight } from '../utils/boardLayout';
 import { movementPath, STEP_DURATION } from '../utils/gamePresentation';
 import { playSound } from '../utils/sound';
 
 interface ThreeBoardSceneProps {
   gameState: GameState;
   localPlayerId: string;
+  diceValues?: [number, number];
+  isDiceCloseup?: boolean;
   onTileClick?: (tile: BoardTile) => void;
-  canRoll?: boolean;
-  onRollClick?: () => void;
   isRolling?: boolean;
 }
 
 export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
   gameState,
   localPlayerId,
+  diceValues,
+  isDiceCloseup = false,
   onTileClick,
-  canRoll,
-  onRollClick,
   isRolling,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [cameraMode, setCameraMode] = useState<'angled' | 'top' | 'focus'>('angled');
   const [hoveredTile, setHoveredTile] = useState<BoardTile | null>(null);
 
-  const liveRef = useRef({ rolling: isRolling, dice: gameState.dice, localPlayerId });
-  liveRef.current = { rolling: isRolling, dice: gameState.dice, localPlayerId };
+  const liveRef = useRef({ rolling: isRolling, closeup: isDiceCloseup, dice: diceValues || gameState.dice, localPlayerId });
+  liveRef.current = { rolling: isRolling, closeup: isDiceCloseup, dice: diceValues || gameState.dice, localPlayerId };
   const ownMarkerRef = useRef<THREE.Group | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -50,6 +52,8 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
   const diceMeshesRef = useRef<THREE.Mesh[]>([]);
   const isDraggingRef = useRef(false);
   const previousMousePosition = useRef({ x: 0, y: 0 });
+  const lookAtRef = useRef(new THREE.Vector3(0, 0, 0));
+  const dragDistanceRef = useRef(0);
   const cameraTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   const cameraPosTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 16, 17));
   const tileMeshesRef = useRef<THREE.Mesh[]>([]);
@@ -365,8 +369,8 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
 
     // 1. Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060912);
-    scene.fog = new THREE.FogExp2(0x060912, 0.015);
+    scene.background = new THREE.Color(0x151e1a);
+    scene.fog = new THREE.FogExp2(0x151e1a, 0.015);
     sceneRef.current = scene;
 
     // 2. Camera
@@ -637,12 +641,16 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     diceMeshesRef.current = [die1, die2];
 
     // 8. Mouse Orbit, Raycasting & Click Handlers
-    const handleMouseDown = (e: MouseEvent) => {
+    const handleMouseDown = (e: PointerEvent) => {
+      if (liveRef.current.closeup || e.button !== 0) return;
+      dragDistanceRef.current = 0;
+      container.setPointerCapture(e.pointerId);
       isDraggingRef.current = true;
       previousMousePosition.current = { x: e.clientX, y: e.clientY };
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMouseMove = (e: PointerEvent) => {
+      if (liveRef.current.closeup) return;
       // 1. Raycast hovered tile
       const rect = container.getBoundingClientRect();
       mouseCoordsRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -674,6 +682,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
       if (!isDraggingRef.current || !cameraRef.current) return;
       const deltaX = e.clientX - previousMousePosition.current.x;
       const deltaY = e.clientY - previousMousePosition.current.y;
+      dragDistanceRef.current += Math.abs(deltaX) + Math.abs(deltaY);
       previousMousePosition.current = { x: e.clientX, y: e.clientY };
 
       const cam = cameraRef.current;
@@ -689,6 +698,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
       cam.position.x = cameraTargetRef.current.x + radius * Math.sin(phi) * Math.sin(theta);
       cam.position.y = cameraTargetRef.current.y + radius * Math.cos(phi);
       cam.position.z = cameraTargetRef.current.z + radius * Math.sin(phi) * Math.cos(theta);
+      cameraPosTargetRef.current.copy(cam.position);
       cam.lookAt(cameraTargetRef.current);
     };
 
@@ -697,7 +707,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     };
 
     const handleClick = (e: MouseEvent) => {
-      if (!cameraRef.current || !onTileClick) return;
+      if (liveRef.current.closeup || dragDistanceRef.current > 5 || !cameraRef.current || !onTileClick) return;
       const rect = container.getBoundingClientRect();
       const mouse = new THREE.Vector2(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -717,30 +727,33 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (!cameraRef.current) return;
+      if (liveRef.current.closeup || !cameraRef.current) return;
       const cam = cameraRef.current;
       const dir = cam.position.clone().sub(cameraTargetRef.current).normalize();
       const dist = cam.position.distanceTo(cameraTargetRef.current);
       const newDist = Math.max(8, Math.min(28, dist + e.deltaY * 0.02));
-      cam.position.copy(cameraTargetRef.current).add(dir.multiplyScalar(newDist));
+      cameraPosTargetRef.current.copy(cameraTargetRef.current).add(dir.multiplyScalar(newDist));
     };
 
-    container.addEventListener('mousedown', handleMouseDown);
+    container.addEventListener('pointerdown', handleMouseDown);
     container.addEventListener('click', handleClick);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    container.addEventListener('pointermove', handleMouseMove);
+    container.addEventListener('pointerup', handleMouseUp);
+    container.addEventListener('pointercancel', handleMouseUp);
     container.addEventListener('wheel', handleWheel, { passive: false });
 
     // 9. Resize Handler
     const handleResize = () => {
       if (!container || !cameraRef.current || !rendererRef.current) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      const w = Math.max(1, container.clientWidth);
+      const h = Math.max(1, container.clientHeight);
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
 
     // 10. Animation Loop
     let animationFrameId: number;
@@ -755,10 +768,18 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
       const elapsed = (currentTime - startTime) / 1000;
       lastTime = currentTime;
 
-      // Smooth camera interpolation
+      // The dice remain physical objects on the table. Frame them, then return to the
+      // current preset or the user's last orbit without overwriting that view.
       if (cameraRef.current) {
-        cameraRef.current.position.lerp(cameraPosTargetRef.current, 0.04);
-        cameraRef.current.lookAt(cameraTargetRef.current);
+        const camera = cameraRef.current;
+        const framing = Math.max(1, 0.85 / camera.aspect);
+        const closePosition = new THREE.Vector3(0, 6.6 * framing, 5.6 * framing);
+        const targetPosition = liveRef.current.closeup ? closePosition : cameraPosTargetRef.current;
+        const lookTarget = liveRef.current.closeup ? new THREE.Vector3(0, 0.65, 0) : cameraTargetRef.current;
+        const blend = 1 - Math.exp(-delta * 6);
+        camera.position.lerp(targetPosition, blend);
+        lookAtRef.current.lerp(lookTarget, blend);
+        camera.lookAt(lookAtRef.current);
       }
 
       // Read current props through a ref; the render loop lives for the whole scene.
@@ -784,9 +805,9 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         const fromPos = getTile3DPosition(anim.path[anim.stepIndex]);
         const toPos = getTile3DPosition(anim.path[anim.stepIndex + 1]);
         tokenGroup.position.set(
-          THREE.MathUtils.lerp(fromPos.x, toPos.x, anim.stepProgress) + (tokenGroup.userData.offsetX || 0),
-          0.16 + Math.sin(anim.stepProgress * Math.PI) * 0.5,
-          THREE.MathUtils.lerp(fromPos.z, toPos.z, anim.stepProgress) + (tokenGroup.userData.offsetZ || 0)
+          THREE.MathUtils.lerp(fromPos.x, toPos.x, anim.stepProgress),
+          0.12 + Math.sin(anim.stepProgress * Math.PI) * 0.5 + (anim.stepIndex === anim.path.length - 2 ? ((tokenGroup.userData.restY || 0.12) - 0.12) * anim.stepProgress : 0),
+          THREE.MathUtils.lerp(fromPos.z, toPos.z, anim.stepProgress)
         );
         if (anim.stepProgress >= 1) {
           playSound('hop');
@@ -816,12 +837,14 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
 
     return () => {
       cancelAnimationFrame(animationFrameId);
-      container.removeEventListener('mousedown', handleMouseDown);
+      container.removeEventListener('pointerdown', handleMouseDown);
       container.removeEventListener('click', handleClick);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      container.removeEventListener('pointermove', handleMouseMove);
+      container.removeEventListener('pointerup', handleMouseUp);
+      container.removeEventListener('pointercancel', handleMouseUp);
       container.removeEventListener('wheel', handleWheel);
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       scene.traverse(obj => {
         if (obj instanceof THREE.Mesh) {
           obj.geometry.dispose();
@@ -853,9 +876,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         currentTokens.set(player.id, tokenGroup);
       }
 
-      const angle = idx * Math.PI * 2 / Math.max(1, gameState.players.length);
-      tokenGroup.userData.offsetX = Math.cos(angle) * 0.35;
-      tokenGroup.userData.offsetZ = Math.sin(angle) * 0.35;
+      tokenGroup.userData.restY = tokenRestHeight(gameState.players, player.id);
       tokenGroup.visible = !player.bankrupt;
       const prevPos = previousPositionsRef.current[player.id];
       const targetPos = player.position;
@@ -869,13 +890,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         });
       } else if (!tokenAnimationRef.current.has(player.id)) {
         const { x, z } = getTile3DPosition(player.position);
-        const offsetAngle = (idx * Math.PI * 2) / Math.max(1, gameState.players.length);
-        const offsetX = Math.cos(offsetAngle) * 0.35;
-        const offsetZ = Math.sin(offsetAngle) * 0.35;
-
-        tokenGroup.position.x = x + offsetX;
-        tokenGroup.position.z = z + offsetZ;
-        tokenGroup.position.y = player.bankrupt ? -5 : 0.12;
+        tokenGroup.position.set(x, tokenGroup.userData.restY, z);
       }
 
       previousPositionsRef.current[player.id] = player.position;
@@ -1004,96 +1019,74 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
       }
     });
 
-    // 3. Camera Focus presets
+  }, [gameState]);
+
+  const focusedPosition = gameState.players[gameState.activePlayerIndex]?.position;
+  useEffect(() => {
     if (cameraMode === 'angled') {
       cameraPosTargetRef.current.set(0, 16, 17);
       cameraTargetRef.current.set(0, 0, 0);
     } else if (cameraMode === 'top') {
       cameraPosTargetRef.current.set(0, 24, 0.1);
       cameraTargetRef.current.set(0, 0, 0);
-    } else if (cameraMode === 'focus') {
-      const activePlayer = gameState.players[gameState.activePlayerIndex];
-      if (activePlayer) {
-        const { x, z } = getTile3DPosition(activePlayer.position);
-        cameraTargetRef.current.set(x, 0.5, z);
-        cameraPosTargetRef.current.set(x, 7, z + 7);
-      }
+    } else if (focusedPosition !== undefined) {
+      const { x, z } = getTile3DPosition(focusedPosition);
+      cameraTargetRef.current.set(x, 0.5, z);
+      cameraPosTargetRef.current.set(x, 7, z + 7);
     }
-  }, [gameState, cameraMode]);
+  }, [cameraMode, cameraMode === 'focus' ? focusedPosition : null]);
 
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-stone-950 to-slate-950 shadow-2xl border-2 border-amber-900/40">
       {/* 3D Canvas Mount */}
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      <div ref={mountRef} className="w-full h-full touch-none cursor-grab active:cursor-grabbing" />
 
-      {/* Floating 3D Camera Controls */}
-      <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 bg-black/70 backdrop-blur-md p-1 rounded-xl border border-amber-500/30 text-xs">
-        <button
-          onClick={() => setCameraMode('angled')}
-          className={`cursor-pointer px-3 py-1.5 rounded-lg font-bold transition-all ${
-            cameraMode === 'angled'
-              ? 'bg-amber-400 text-slate-950 shadow-sm'
-              : 'text-slate-300 hover:text-white'
-          }`}
-        >
-          🎥 3D Orbit
-        </button>
-        <button
-          onClick={() => setCameraMode('top')}
-          className={`cursor-pointer px-3 py-1.5 rounded-lg font-bold transition-all ${
-            cameraMode === 'top'
-              ? 'bg-amber-400 text-slate-950 shadow-sm'
-              : 'text-slate-300 hover:text-white'
-          }`}
-        >
-          📐 Top-Down
-        </button>
-        <button
-          onClick={() => setCameraMode('focus')}
-          className={`cursor-pointer px-3 py-1.5 rounded-lg font-bold transition-all ${
-            cameraMode === 'focus'
-              ? 'bg-amber-400 text-slate-950 shadow-sm'
-              : 'text-slate-300 hover:text-white'
-          }`}
-        >
-          🎯 Focus Player
-        </button>
-      </div>
-
-      {/* Hovered Tile Preview Pill */}
-      {hoveredTile && (
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-amber-500/40 shadow-lg pointer-events-none">
-          <span className="font-bold text-white text-xs">{hoveredTile.name}</span>
-          {hoveredTile.price && (
-            <span className="text-amber-400 font-mono font-bold text-xs">${hoveredTile.price}</span>
-          )}
-          <span className="text-[10px] text-slate-400 uppercase tracking-wider">
-            (Click to inspect deed)
-          </span>
-        </div>
-      )}
-
-      {/* Floating 3D Roll Dice Trigger button (top center, unobtrusive) */}
-      {canRoll && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20">
-          <button
-            onClick={onRollClick}
-            disabled={isRolling}
-            className="cursor-pointer px-6 py-2 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(245,158,11,0.7)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2 border border-amber-300/40"
-          >
-            <span className="text-base">🎲</span>
-            <span>{isRolling ? 'ROLLING...' : 'ROLL 3D DICE'}</span>
+      <div className="board-toolbar" role="group" aria-label="Kameraansicht">
+        {([
+          ['angled', Camera, 'Perspektive'],
+          ['top', ScanLine, 'Draufsicht'],
+          ['focus', LocateFixed, 'Am Zug'],
+        ] as const).map(([mode, Icon, label]) => (
+          <button key={mode} onClick={() => setCameraMode(mode)} disabled={isDiceCloseup} aria-pressed={cameraMode === mode} title={label}>
+            <Icon size={15} strokeWidth={1.6} /><span>{label}</span>
           </button>
+        ))}
+        <button title="Ansicht zurücksetzen" aria-label="Ansicht zurücksetzen" disabled={isDiceCloseup} onClick={() => {
+          if (cameraMode === 'angled') {
+            cameraPosTargetRef.current.set(0, 16, 17);
+            cameraTargetRef.current.set(0, 0, 0);
+          } else if (cameraMode === 'top') {
+            cameraPosTargetRef.current.set(0, 24, 0.1);
+            cameraTargetRef.current.set(0, 0, 0);
+          } else {
+            const player = gameState.players[gameState.activePlayerIndex];
+            if (player) {
+              const { x, z } = getTile3DPosition(player.position);
+              cameraTargetRef.current.set(x, 0.5, z);
+              cameraPosTargetRef.current.set(x, 7, z + 7);
+            }
+          }
+        }}><RotateCcw size={14} /></button>
+      </div>
+
+      {hoveredTile && !isDiceCloseup && (
+        <div className="board-inspector pointer-events-none">
+          <span className="text-[9px] uppercase tracking-[0.18em] text-stone-400">Grundstück ansehen</span>
+          <span className="text-xs text-stone-100">{hoveredTile.name}</span>
+          {hoveredTile.price && <span className="text-xs font-mono text-amber-200">${hoveredTile.price}</span>}
         </div>
       )}
 
-      <div className="absolute bottom-8 left-3 rounded-lg border border-amber-200/25 bg-stone-950/85 px-3 py-2 text-xs text-amber-100 pointer-events-none">
-        <span className="text-amber-300 mr-2" aria-hidden="true">↓</span>Deine Figur · {BOARD_TILES[gameState.players.find(p => p.id === localPlayerId)?.position ?? 0]?.name}
+      <div className="board-caption pointer-events-none" role="status" aria-live="polite">
+        {isDiceCloseup ? <>
+          <Dices size={16} className="text-amber-200" />
+          <span>{isRolling ? 'Würfel werden geworfen' : `${(diceValues || gameState.dice)[0]} + ${(diceValues || gameState.dice)[1]} · ${(diceValues || gameState.dice).reduce((sum, n) => sum + n, 0)} Felder`}</span>
+        </> : <>
+          <LocateFixed size={15} className="text-amber-200" />
+          <span>Deine Figur <span className="text-stone-500 mx-1">/</span> {BOARD_TILES[gameState.players.find(p => p.id === localPlayerId)?.position ?? 0]?.name}</span>
+        </>}
       </div>
-      {/* Quick Navigation Help Note */}
-      <div className="absolute bottom-2 right-3 text-[10px] text-slate-400/80 bg-black/50 backdrop-blur-xs px-2.5 py-1 rounded-lg pointer-events-none border border-white/5">
-        🖱️ Click & drag to rotate 3D view · Scroll to zoom · Click any tile to inspect
-      </div>
+      {!isDiceCloseup && <div className="board-navigation-hint pointer-events-none"><Move size={12} /> Ziehen zum Drehen <span>·</span> Scrollen zum Zoomen</div>}
     </div>
   );
 };

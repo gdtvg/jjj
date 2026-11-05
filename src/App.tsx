@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GameClient } from './lib/gameClient';
+import { Trophy, Copy, Check, Volume2, VolumeX, Maximize, Minimize, Crown } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Dice } from './components/Dice';
 import { hasNewRoll, movementDuration, ROLL_DURATION } from './utils/gamePresentation';
 import { Board } from './components/Board';
 import { ThreeBoardScene } from './components/ThreeBoardScene';
@@ -30,6 +30,7 @@ export default function App() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [soundMuted, setSoundMutedState] = useState(isSoundMuted());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDiceSettling, setIsDiceSettling] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
   const [rollValues, setRollValues] = useState<[number, number]>([1, 1]);
   const [isRollingDice, setIsRollingDice] = useState(false);
@@ -55,7 +56,7 @@ export default function App() {
     let presentation = Promise.resolve();
     let disposed = false;
     const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    s.on('error', (message: string) => { setErrorMessage(message); setIsRollingDice(false); });
+    s.on('error', (message: string) => { setErrorMessage(message); setIsRollingDice(false); setIsDiceSettling(false); });
     s.on('lobby:joined', () => setView('LOBBY'));
 
     s.on('lobby:update', (updatedLobby: LobbyRoom) => {
@@ -82,6 +83,14 @@ export default function App() {
           playSound('roll');
           await pause(ROLL_DURATION);
           if (disposed) return;
+        }
+        setRollValues(state.dice);
+        if (rolled) {
+          setIsDiceSettling(true);
+          setIsRollingDice(false);
+          await pause(650);
+          if (disposed) return;
+          setIsDiceSettling(false);
         }
         setIsRollingDice(false);
         setIsMoving(moveTime > 0);
@@ -276,7 +285,7 @@ export default function App() {
 
   // In-Game Socket Operations
   const handleRollDice = () => {
-    if (!socket || !gameState || isRollingDice || isMoving) return;
+    if (!socket || !gameState || isRollingDice || isDiceSettling || isMoving) return;
     setIsRollingDice(true);
     socket.emit('game:roll', { roomId: gameState.roomId });
   };
@@ -362,7 +371,7 @@ export default function App() {
   };
 
   const canRollNow = Boolean(
-    !isRollingDice && !isMoving && gameState?.phase === 'ROLL' &&
+    !isRollingDice && !isDiceSettling && !isMoving && gameState?.phase === 'ROLL' &&
       currentPlayer &&
       gameState.players[gameState.activePlayerIndex]?.id === currentPlayer.id
   );
@@ -547,12 +556,12 @@ export default function App() {
 
       {/* Screen 3: IN GAME (Maximized Full-Viewport Grid) */}
       {view === 'GAME' && gameState && currentPlayer && (
-        <div className="h-full w-full flex flex-col overflow-hidden">
+        <div className="game-workspace h-full w-full flex flex-col overflow-hidden">
           {/* Top Sleek Header Bar */}
-          <header className="min-h-12 py-1 bg-slate-900/95 border-b border-slate-800 px-4 pl-16 sm:pl-4 md:px-6 flex items-center justify-between shrink-0 shadow-md backdrop-blur-md">
+          <header className="min-h-12 py-1 bg-slate-900/95 border-b border-slate-800 px-4 pl-4 md:px-6 flex flex-wrap gap-2 items-center justify-between shrink-0 shadow-md backdrop-blur-md">
             {/* Left: Brand & Room Tag */}
             <div className="flex items-center gap-3">
-              <span className="text-xl">🎩</span>
+              <Crown size={19} className="text-amber-200" />
               <div className="flex items-center gap-2">
                 <span className="text-sm font-black tracking-tight text-white">MONOPOLY</span>
                 <span className="text-slate-600">·</span>
@@ -566,16 +575,16 @@ export default function App() {
                   className="cursor-pointer text-[11px] font-mono font-bold bg-slate-950 border border-slate-700 px-2 py-0.5 rounded text-amber-400 hover:bg-slate-800 transition-colors flex items-center gap-1"
                   title="Click to copy room code"
                 >
-                  <span>Room:</span>
+                  <span>Raum</span>
                   <b>#{gameState.roomId}</b>
-                  <span className="text-[9px] text-slate-400">{copiedLink ? '✓' : '📋'}</span>
+                  <span className="text-[9px] text-slate-400">{copiedLink ? <Check size={12} /> : <Copy size={12} />}</span>
                 </button>
               </div>
             </div>
 
             {/* Center: Quick Turn Ticker */}
             <div className="hidden md:flex items-center gap-2 text-xs">
-              <span className="text-slate-400">Current Turn:</span>
+              <span className="text-slate-400">Am Zug:</span>
               <span
                 className="font-black flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-950 border border-slate-800"
                 style={{ color: gameState.players[gameState.activePlayerIndex]?.color }}
@@ -595,12 +604,12 @@ export default function App() {
                 className="cursor-pointer text-xs bg-slate-950 hover:bg-slate-800 border border-amber-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1 text-amber-300 font-bold transition-colors"
                 title="View Cloud Leaderboard"
               >
-                <span>🏆</span>
-                <span className="hidden lg:inline">Leaderboard</span>
+                <Trophy size={15} />
+                <span className="hidden lg:inline">Rangliste</span>
               </button>
 
               <div className="text-xs bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg flex items-center gap-1.5">
-                <span className="text-slate-400">Your Cash:</span>
+                <span className="text-slate-400">Bargeld</span>
                 <span className="font-mono font-black text-emerald-400">
                   ${currentPlayer.money}
                 </span>
@@ -613,26 +622,30 @@ export default function App() {
                     playSound('click');
                     setBoardMode('3D');
                   }}
+                  disabled={isRollingDice || isDiceSettling || isMoving}
+                  aria-pressed={boardMode === '3D'}
                   className={`cursor-pointer px-2.5 py-1 rounded-md font-black transition-all ${
                     boardMode === '3D'
                       ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  3D Arena
+                  3D-Tisch
                 </button>
                 <button
                   onClick={() => {
                     playSound('click');
                     setBoardMode('2D');
                   }}
+                  disabled={isRollingDice || isDiceSettling || isMoving}
+                  aria-pressed={boardMode === '2D'}
                   className={`cursor-pointer px-2.5 py-1 rounded-md font-black transition-all ${
                     boardMode === '2D'
                       ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  2D Board
+                  Spielbrett
                 </button>
               </div>
 
@@ -642,7 +655,7 @@ export default function App() {
                 className="cursor-pointer p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-xs"
                 title={soundMuted ? 'Unmute Sound' : 'Mute Sound'}
               >
-                {soundMuted ? '🔇' : '🔊'}
+                {soundMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
               </button>
 
               {/* Fullscreen Toggle */}
@@ -651,7 +664,7 @@ export default function App() {
                 className="cursor-pointer p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-xs"
                 title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
               >
-                {isFullscreen ? '⤦' : '⛶'}
+                {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
               </button>
 
               {/* Leave Game */}
@@ -663,7 +676,7 @@ export default function App() {
                 }}
                 className="cursor-pointer text-xs font-bold text-slate-400 hover:text-rose-400 px-2 py-1 rounded hover:bg-slate-800 transition-colors"
               >
-                Quit
+                Verlassen
               </button>
             </div>
           </header>
@@ -678,9 +691,9 @@ export default function App() {
                   <ThreeBoardScene
                     localPlayerId={currentPlayer.id}
                     gameState={gameState}
-                    canRoll={canRollNow}
                     isRolling={isRollingDice}
-                    onRollClick={handleRollDice}
+                    diceValues={rollValues}
+                    isDiceCloseup={isRollingDice || isDiceSettling}
                     onTileClick={(tile) => {
                       setInspectedTile(tile);
                       setIsPropertyModalOpen(true);
@@ -691,6 +704,7 @@ export default function App() {
                     localPlayerId={currentPlayer.id}
                     gameState={gameState}
                     canRoll={canRollNow}
+                    diceValues={rollValues}
                     isRolling={isRollingDice}
                     onRollClick={handleRollDice}
                     onTileClick={(tile) => {
@@ -702,10 +716,11 @@ export default function App() {
               </div>
 
               {/* Tactical Action Bar */}
-              <div inert={isRollingDice || isMoving} className={`w-full max-w-[calc(100vh-130px)] shrink-0 ${isRollingDice || isMoving ? "opacity-50" : ""}`}>
+              <div inert={isRollingDice || isDiceSettling || isMoving} className={`w-full max-w-[calc(100vh-130px)] shrink-0 ${isRollingDice || isDiceSettling || isMoving ? "opacity-50" : ""}`}>
                 <ActionBar
                   gameState={gameState}
                   currentPlayer={currentPlayer}
+                  activity={isRollingDice ? 'rolling' : isDiceSettling ? 'result' : isMoving ? 'moving' : null}
                   onRollDice={handleRollDice}
                   onBuyProperty={handleBuyProperty}
                   onDeclineProperty={handleDeclineProperty}
@@ -720,9 +735,9 @@ export default function App() {
             </section>
 
             {/* Right Maximized Sidebar (Scoreboard + Live Ticker) */}
-            <aside className="w-full lg:w-84 xl:w-96 flex flex-col gap-2.5 shrink-0 h-full overflow-hidden">
+            <aside className="game-sidebar w-full lg:w-80 xl:w-88 flex flex-row lg:flex-col gap-2.5 shrink-0 h-36 lg:h-full min-w-0 overflow-hidden">
               {/* Tycoon Leaderboard Card */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 shadow-xl backdrop-blur-xs shrink-0">
+              <div className="w-[45%] lg:w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-3 shadow-xl backdrop-blur-xs shrink-0 overflow-y-auto">
                 <PlayerScoreboard gameState={gameState} currentPlayer={currentPlayer} />
               </div>
 
@@ -731,18 +746,8 @@ export default function App() {
             </aside>
           </main>
 
-          {isRollingDice && (
-            <div className="dice-stage fixed inset-0 z-40 pointer-events-none flex items-center justify-center" role="status" aria-live="polite">
-              <div className="rounded-3xl border border-amber-300/30 bg-stone-950/90 px-10 py-7 shadow-2xl backdrop-blur-md text-center">
-                <p className="text-[10px] uppercase tracking-[0.3em] text-amber-200 mb-6">Die Würfel fallen</p>
-                <div className="flex gap-6 justify-center"><Dice value={rollValues[0]} size="lg" rolling /><Dice value={rollValues[1]} size="lg" rolling /></div>
-              </div>
-            </div>
-          )}
-          {isMoving && <div role="status" className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 bg-stone-950/90 border border-amber-300/30 rounded-full px-5 py-2 text-xs text-amber-100 pointer-events-none">Die Spielfigur zieht …</div>}
-
           {/* Property Management Deed Modal */}
-          {isPropertyModalOpen && !isRollingDice && !isMoving && (
+          {isPropertyModalOpen && !isRollingDice && !isDiceSettling && !isMoving && (
             <PropertyModal
               gameState={gameState}
               currentPlayer={currentPlayer}
@@ -759,7 +764,7 @@ export default function App() {
           )}
 
           {/* Trade Agreement Modal */}
-          {isTradeModalOpen && !isRollingDice && !isMoving && (
+          {isTradeModalOpen && !isRollingDice && !isDiceSettling && !isMoving && (
             <TradeModal
               gameState={gameState}
               currentPlayer={currentPlayer}
@@ -771,7 +776,7 @@ export default function App() {
           )}
 
           {/* Card Draw Modal (Chance / Community Chest) */}
-          {gameState.pendingCard && !isRollingDice && !isMoving && (
+          {gameState.pendingCard && !isRollingDice && !isDiceSettling && !isMoving && (
             <CardModal key={gameState.pendingCard.id}
               card={gameState.pendingCard}
               isMyTurn={

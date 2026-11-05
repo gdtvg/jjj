@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { movementPath, movementDuration, hasNewRoll, STEP_DURATION } from '../src/utils/gamePresentation';
+import { tokenRestHeight } from '../src/utils/boardLayout';
 import { GameEngine } from '../src/game/GameEngine';
 import type { Player } from '../src/types/game';
 const player = (position: number, inJail = false): Player => ({ id: 'a', name: 'a', token: '🎩', color: '#fff', position, inJail, money: 1500, jailTurns: 0, getOutOfJailCards: 0, bankrupt: false, isHost: true, isReady: true, connected: true });
@@ -40,4 +41,15 @@ test('rolling automatically moves the player and opens the card on an event tile
   assert.deepEqual(engine.getState().dice, [1, 1]);
   assert.equal(engine.getState().phase, 'RESOLVING_CARD');
   assert.ok(engine.getState().pendingCard);
+});
+
+test('figures sharing a field stack vertically without changing their field positions', () => {
+  const players = [player(7), { ...player(7), id: 'b' }, { ...player(9), id: 'c' }];
+  const positions = players.map(p => p.position);
+  assert.equal(tokenRestHeight(players, 'a'), 0.12);
+  assert.ok(Math.abs(tokenRestHeight(players, 'b') - 0.6) < 0.001);
+  assert.equal(tokenRestHeight(players, 'c'), 0.12);
+  players[0].bankrupt = true;
+  assert.equal(tokenRestHeight(players, 'b'), 0.12);
+  assert.deepEqual(players.map(p => p.position), positions);
 });

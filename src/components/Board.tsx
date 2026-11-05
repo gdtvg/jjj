@@ -10,6 +10,7 @@ import { playSound } from '../utils/sound';
 
 interface BoardProps {
   gameState: GameState;
+  diceValues?: [number, number];
   localPlayerId: string;
   onTileClick?: (tile: BoardTile) => void;
   onRollClick?: () => void;
@@ -49,6 +50,7 @@ export const getTilePercentCenter = (tileId: number): { x: number; y: number } =
 
 export const Board: React.FC<BoardProps> = ({
   gameState,
+  diceValues,
   localPlayerId,
   onTileClick,
   onRollClick,
@@ -407,8 +409,8 @@ export const Board: React.FC<BoardProps> = ({
 
                   {/* 3D Ivory Dice with Real Dots */}
                   <div className="flex items-center justify-center gap-5 my-1">
-                    <Dice value={gameState.dice[0]} size="lg" rolling={isRolling} />
-                    <Dice value={gameState.dice[1]} size="lg" rolling={isRolling} />
+                    <Dice value={diceValues?.[0] ?? gameState.dice[0]} size="lg" rolling={isRolling} />
+                    <Dice value={diceValues?.[1] ?? gameState.dice[1]} size="lg" rolling={isRolling} />
                   </div>
 
                   {/* Doubles alert */}

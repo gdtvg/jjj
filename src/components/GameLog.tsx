@@ -31,7 +31,7 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
   });
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col flex-1 min-h-0 shadow-xl overflow-hidden">
+    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col flex-1 min-w-0 min-h-0 shadow-xl overflow-hidden">
       {/* Header with filter tabs */}
       <div className="p-2.5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between shrink-0">
         <span className="text-[11px] font-black uppercase tracking-wider text-slate-300">

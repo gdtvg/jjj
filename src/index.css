@@ -23,3 +23,28 @@
 @media (prefers-reduced-motion: reduce) {
   .dice-tumbling, .own-position-arrow, .event-card-overlay { animation: none; }
 }
+
+/* The table is the focal point; controls use a restrained brass-and-charcoal finish. */
+.game-workspace { background: #121917; }
+.game-workspace header { background: #19211f; border-color: #c8b58b24; padding-block: 10px; }
+.game-workspace button:focus-visible { outline: 2px solid #d8bc80; outline-offset: 3px; }
+.game-workspace button:disabled { cursor: default; opacity: 0.45; }
+.game-actionbar { background: #1d2723; border-color: #c8b58b30; box-shadow: 0 8px 24px #10161233; }
+.game-actionbar button { box-shadow: none; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.game-actionbar button:has(svg.lucide-dices), .game-actionbar button:has(svg.lucide-arrow-right) {
+  background: #d5bb83; color: #222b23; border: 1px solid #e5d3ad; min-height: 40px;
+}
+.game-sidebar > div { background: #1a2320; border-color: #c8b58b24; box-shadow: none; }
+.board-toolbar {
+  position: absolute; top: 14px; left: 14px; display: flex; gap: 3px; padding: 4px;
+  background: #18201eea; border: 1px solid #c8b58b35; border-radius: 12px; backdrop-filter: blur(12px);
+}
+.board-toolbar button { display: flex; align-items: center; gap: 7px; padding: 9px 12px; border-radius: 8px; color: #acb6af; font-size: 11px; cursor: pointer; }
+.board-toolbar button[aria-pressed="true"] { background: #c9b78a24; color: #ead8ac; }
+.board-toolbar button:hover:not(:disabled) { background: #d0c3a61a; color: #f0e5cf; }
+.board-inspector { position: absolute; top: 70px; right: 14px; display: flex; flex-direction: column; gap: 4px; background: #18201eea; padding: 12px 16px; border: 1px solid #c8b58b30; border-radius: 10px; }
+.board-caption { position: absolute; bottom: 16px; left: 16px; display: flex; align-items: center; gap: 9px; max-width: calc(100% - 32px); background: #18201eea; padding: 10px 14px; border: 1px solid #c8b58b30; border-radius: 10px; font-size: 11px; color: #e2e6de; backdrop-filter: blur(12px); }
+.board-navigation-hint { position: absolute; bottom: 18px; right: 16px; display: flex; align-items: center; gap: 6px; color: #a9b3aa; font-size: 10px; }
+@media (max-width: 900px) { .board-navigation-hint { display: none; } }
+@media (max-width: 480px) { .board-toolbar { top: 10px; left: 10px; } .board-toolbar button { padding: 8px; gap: 5px; font-size: 10px; } .game-actionbar { padding: 10px; gap: 10px; } }
+.game-workspace header button[aria-pressed="true"] { background: #d5bb83; color: #222b23; box-shadow: none; }
