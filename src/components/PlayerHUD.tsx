@@ -190,7 +190,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
         </div>
       </div>
 
-      <TurnCountdown deadline={gameState.turnDeadline} phase={gameState.phase} />
+      <TurnCountdown deadline={gameState.turnDeadline} phase={gameState.phase} total={gameState.turnSeconds} />
 
       {/* Right: Tactical Control Buttons */}
       <div className="flex flex-wrap items-center gap-2">

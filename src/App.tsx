@@ -32,6 +32,7 @@ export default function App() {
   const [playerColor, setPlayerColor] = useState<string>(PLAYER_COLORS[0]);
   const [joinRoomCode, setJoinRoomCode] = useState<string>('');
   const { notices, notify, dismiss } = useNotifications();
+  useEffect(() => { localStorage.setItem('monopoly-profile', JSON.stringify({ playerName, token: playerToken, color: playerColor })); }, [playerName, playerToken, playerColor]);
   const tradeOpenRef = useRef(false);
   const tradeActionLocks = useRef(new Set<string>());
   const [copiedLink, setCopiedLink] = useState(false);
@@ -288,6 +289,11 @@ export default function App() {
     socket.emit('lobby:update_player', { roomId: lobbyData.roomId, token, color, name });
   };
 
+  const handleUpdateSettings = (settings: { maxPlayers: number; turnSeconds: number }) => {
+    if (!socket || !lobbyData) return;
+    socket.emit('lobby:settings', { roomId: lobbyData.roomId, ...settings }, (res: any) => { if (!res.success) triggerError(res.error || 'Einstellung fehlgeschlagen'); });
+  };
+
   const handleAddBot = () => {
     if (!socket || !lobbyData) return;
     socket.emit('lobby:add_bot', { roomId: lobbyData.roomId });
@@ -499,7 +505,7 @@ export default function App() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
                   Player Color
                 </label>
-                <div className="flex gap-2.5 justify-center">
+                <div className="flex flex-wrap gap-2.5 justify-center">
                   {PLAYER_COLORS.map((c) => (
                     <button
                       key={c}
@@ -534,7 +540,7 @@ export default function App() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  maxLength={4}
+                  maxLength={8}
                   value={joinRoomCode}
                   onChange={(e) => setJoinRoomCode(e.target.value.toUpperCase())}
                   placeholder="ROOM CODE"
@@ -584,6 +590,7 @@ export default function App() {
             onRemovePlayer={handleRemovePlayer}
             onStartGame={handleStartGame}
             onLeaveLobby={handleLeaveLobby}
+            onUpdateSettings={handleUpdateSettings}
           />
         </div>
       )}
@@ -596,8 +603,8 @@ export default function App() {
             <div className="game-brand">
               <Crown size={18} className="text-amber-200 shrink-0" />
               <span className="game-brand-name">MONOPOLY</span>
-              <button className="room-code" title="Raumcode kopieren" onClick={() => {
-                navigator.clipboard.writeText(gameState.roomId).then(() => {
+              <button className="room-code" title="Einladungslink kopieren" onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/?room=${gameState.roomId}`).then(() => {
                   setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000);
                 }).catch(() => triggerError('Raumcode: ' + gameState.roomId));
               }}><span>#{gameState.roomId}</span>{copiedLink ? <Check size={12} /> : <Copy size={12} />}</button>

@@ -6,7 +6,7 @@ import { getCardDeckMaterials, getFeltTexture } from '../utils/tileTextureGenera
 import { createBoardTileMesh } from '../utils/propertyModel';
 import { ASSETS } from '../assets/assetMap';
 import { Camera, LocateFixed, Move, ScanLine, Dices, RotateCcw } from 'lucide-react';
-import { tokenRestHeight } from '../utils/boardLayout';
+import { tokenRestY, tokenSpreadOffset } from '../utils/boardLayout';
 import { movementPath, STEP_DURATION } from '../utils/gamePresentation';
 import { playSound } from '../utils/sound';
 
@@ -702,7 +702,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
       const cam = cameraRef.current;
       const dir = cam.position.clone().sub(cameraTargetRef.current).normalize();
       const dist = cam.position.distanceTo(cameraTargetRef.current);
-      const newDist = Math.max(8, Math.min(28, dist + e.deltaY * 0.02));
+      const newDist = Math.max(5, Math.min(40, dist + e.deltaY * 0.02));
       cameraPosTargetRef.current.copy(cameraTargetRef.current).add(dir.multiplyScalar(newDist));
     };
 
@@ -781,9 +781,9 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         const fromPos = getTile3DPosition(anim.path[anim.stepIndex]);
         const toPos = getTile3DPosition(anim.path[anim.stepIndex + 1]);
         tokenGroup.position.set(
-          THREE.MathUtils.lerp(fromPos.x, toPos.x, anim.stepProgress),
+          THREE.MathUtils.lerp(fromPos.x, toPos.x, anim.stepProgress) + (anim.stepIndex === anim.path.length - 2 ? (tokenGroup.userData.dx || 0) * anim.stepProgress : 0),
           0.12 + Math.sin(anim.stepProgress * Math.PI) * 0.5 + (anim.stepIndex === anim.path.length - 2 ? ((tokenGroup.userData.restY || 0.12) - 0.12) * anim.stepProgress : 0),
-          THREE.MathUtils.lerp(fromPos.z, toPos.z, anim.stepProgress)
+          THREE.MathUtils.lerp(fromPos.z, toPos.z, anim.stepProgress) + (anim.stepIndex === anim.path.length - 2 ? (tokenGroup.userData.dz || 0) * anim.stepProgress : 0)
         );
         if (anim.stepProgress >= 1) {
           playSound('hop');
@@ -852,7 +852,11 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         currentTokens.set(player.id, tokenGroup);
       }
 
-      tokenGroup.userData.restY = tokenRestHeight(gameState.players, player.id);
+      tokenGroup.userData.restY = tokenRestY(gameState.players, player.id);
+      const spread = tokenSpreadOffset(gameState.players, player.id);
+      tokenGroup.userData.dx = spread.dx;
+      tokenGroup.userData.dz = spread.dz;
+      tokenGroup.scale.setScalar(spread.scale);
       tokenGroup.visible = !player.bankrupt;
       const prevPos = previousPositionsRef.current[player.id];
       const targetPos = player.position;
@@ -866,7 +870,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         });
       } else if (!tokenAnimationRef.current.has(player.id)) {
         const { x, z } = getTile3DPosition(player.position);
-        tokenGroup.position.set(x, tokenGroup.userData.restY, z);
+        tokenGroup.position.set(x + (tokenGroup.userData.dx || 0), tokenGroup.userData.restY, z + (tokenGroup.userData.dz || 0));
       }
 
       previousPositionsRef.current[player.id] = player.position;

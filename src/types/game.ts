@@ -34,7 +34,7 @@ export interface BoardTile {
   description?: string;
 }
 
-export type PlayerToken = '🎩' | '🚗' | '🚢' | '🐕' | '👢' | '🐱' | '✈️' | '🦖';
+export type PlayerToken = '🎩' | '🚗' | '🚢' | '🐕' | '👢' | '🐱' | '✈️' | '🦖' | '🦄' | '🚀' | '🐉' | '⚓' | '🎸' | '🦁' | '🐧' | '🍀' | '⭐' | '🏆' | '🐢' | '🦊';
 
 export interface Player {
   id: string; // Socket ID or generated ID
@@ -124,6 +124,8 @@ export interface GameLogEntry {
 }
 
 export interface GameState {
+  /** Seconds per human action before auto-play; 0 disables the limit. */
+  turnSeconds?: number;
   turnDeadline?: number;
   turnClockKey?: string;
   roomId: string;
@@ -149,4 +151,10 @@ export interface LobbyRoom {
   players: Player[];
   status: 'WAITING' | 'PLAYING';
   createdAt: number;
+  settings?: LobbySettings;
+}
+
+export interface LobbySettings {
+  maxPlayers: number;
+  turnSeconds: number;
 }

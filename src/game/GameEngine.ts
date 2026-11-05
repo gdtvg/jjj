@@ -17,7 +17,7 @@ export class GameEngine {
   private chanceDeck: Card[];
   private communityDeck: Card[];
 
-  constructor(roomId: string, players: Player[]) {
+  constructor(roomId: string, players: Player[], options: { turnSeconds?: number } = {}) {
     // Initialize properties state
     const properties: Record<number, PropertyState> = {};
     BOARD_TILES.forEach((tile) => {
@@ -56,6 +56,7 @@ export class GameEngine {
       activeTrade: null,
       logs: [],
       freeParkingPot: 100,
+      turnSeconds: options.turnSeconds ?? 25,
     };
 
     this.syncTurnClock();
@@ -923,7 +924,7 @@ export class GameEngine {
   /** Persisted deadlines are checked under the room's database lock. */
   public syncTurnClock(now = Date.now()): boolean {
     const player = this.getActivePlayer();
-    if (!player || player.isBot || this.state.phase === 'GAME_OVER') {
+    if (!player || player.isBot || this.state.phase === 'GAME_OVER' || this.state.turnSeconds === 0) {
       const changed = this.state.turnDeadline !== undefined;
       delete this.state.turnDeadline;
       delete this.state.turnClockKey;
@@ -932,7 +933,7 @@ export class GameEngine {
     const key = `${player.id}:${this.state.phase}:${this.state.doublesCount}:${this.state.hasRolled}`;
     if (this.state.turnClockKey === key && this.state.turnDeadline !== undefined) return false;
     this.state.turnClockKey = key;
-    this.state.turnDeadline = now + 25_000;
+    this.state.turnDeadline = now + (this.state.turnSeconds ?? 25) * 1000;
     return true;
   }
 

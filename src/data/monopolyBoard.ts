@@ -552,7 +552,10 @@ export const COMMUNITY_CARDS: Card[] = [
   },
 ];
 
-export const AVAILABLE_TOKENS = ['🎩', '🚗', '🚢', '🐕', '👢', '🐱', '✈️', '🦖'] as const;
+export const AVAILABLE_TOKENS = ['🎩', '🚗', '🚢', '🐕', '👢', '🐱', '✈️', '🦖', '🦄', '🚀', '🐉', '⚓', '🎸', '🦁', '🐧', '🍀', '⭐', '🏆', '🐢', '🦊'] as const;
+
+export const MAX_PLAYERS = 20;
+export const TURN_LIMIT_OPTIONS = [0, 15, 25, 45, 60, 90] as const;
 
 export const PLAYER_COLORS = [
   '#ef4444', // Red
@@ -561,4 +564,6 @@ export const PLAYER_COLORS = [
   '#f59e0b', // Amber
   '#8b5cf6', // Violet
   '#ec4899', // Pink
+  '#06b6d4', '#84cc16', '#f97316', '#a855f7', '#14b8a6', '#eab308', '#f43f5e', '#6366f1',
+  '#22c55e', '#0ea5e9', '#d946ef', '#78716c', '#fb7185', '#facc15',
 ];

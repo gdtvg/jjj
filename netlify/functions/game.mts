@@ -3,7 +3,7 @@ import { eq, desc, sql } from 'drizzle-orm';
 import { database } from '../../db/index.js';
 import { rooms, scores } from '../../db/schema.js';
 import { GameEngine } from '../../src/game/GameEngine.js';
-import { AVAILABLE_TOKENS, PLAYER_COLORS, BOARD_TILES } from '../../src/data/monopolyBoard.js';
+import { AVAILABLE_TOKENS, PLAYER_COLORS, BOARD_TILES, MAX_PLAYERS, TURN_LIMIT_OPTIONS } from '../../src/data/monopolyBoard.js';
 import type { Player, LobbyRoom } from '../../src/types/game.js';
 
 export default async (req: Request) => {
@@ -38,7 +38,7 @@ export default async (req: Request) => {
       let roomId = '';
       for (const byte of randomBytes(4)) roomId += alphabet[byte % alphabet.length];
       const player = makePlayer([]);
-      const lobby: LobbyRoom = { roomId, hostId: playerId, players: [player], status: 'WAITING', createdAt: Date.now() };
+      const lobby: LobbyRoom = { roomId, hostId: playerId, players: [player], status: 'WAITING', createdAt: Date.now(), settings: { maxPlayers: MAX_PLAYERS, turnSeconds: 25 } };
       await db.insert(rooms).values({ id: roomId, lobby });
       return respond({ success: true, roomId, player, lobby });
     }
@@ -47,6 +47,8 @@ export default async (req: Request) => {
       const [row] = await tx.select().from(rooms).where(eq(rooms.id, roomId)).for('update');
       if (!row) throw new Error('Room not found');
       const lobby = row.lobby;
+      lobby.settings = { maxPlayers: MAX_PLAYERS, turnSeconds: 25, ...lobby.settings };
+      const capacity = Math.min(MAX_PLAYERS, Math.max(2, lobby.settings.maxPlayers));
       let engine = row.engine ? GameEngine.restore(row.engine) : null;
       let me = lobby.players.find(p => p.id === playerId);
       let changed = event !== 'room:poll';
@@ -55,7 +57,7 @@ export default async (req: Request) => {
       if (event === 'lobby:join') {
         if (!me) {
           requireLobby();
-          if (lobby.players.length >= 6) throw new Error('Room is full');
+          if (lobby.players.length >= capacity) throw new Error('Room is full');
           me = makePlayer(lobby.players);
           lobby.players.push(me);
         }
@@ -67,8 +69,15 @@ export default async (req: Request) => {
         Object.assign(me!, { name: profile.name, color: profile.color, token: profile.token });
       } else if (event === 'lobby:add_bot') {
         requireHost(); requireLobby();
-        if (lobby.players.length >= 6) throw new Error('Room is full');
+        if (lobby.players.length >= capacity) throw new Error('Room is full');
         lobby.players.push(makePlayer(lobby.players, true));
+      } else if (event === 'lobby:settings') {
+        requireHost(); requireLobby();
+        const maxPlayers = Math.round(Number(data.maxPlayers));
+        const turnSeconds = Number(data.turnSeconds);
+        if (!Number.isFinite(maxPlayers) || maxPlayers < Math.max(2, lobby.players.length) || maxPlayers > MAX_PLAYERS) throw new Error('Invalid player limit');
+        if (!(TURN_LIMIT_OPTIONS as readonly number[]).includes(turnSeconds)) throw new Error('Invalid turn limit');
+        lobby.settings = { maxPlayers, turnSeconds };
       } else if (event === 'lobby:remove_player') {
         requireHost(); requireLobby();
         if (data.targetPlayerId === playerId) throw new Error('Use leave to exit the room');
@@ -83,7 +92,7 @@ export default async (req: Request) => {
       } else if (event === 'game:start') {
         requireHost(); requireLobby();
         if (lobby.players.length < 2 || lobby.players.some(p => !p.isReady)) throw new Error('At least two players must be ready');
-        engine = new GameEngine(roomId, lobby.players);
+        engine = new GameEngine(roomId, lobby.players, { turnSeconds: lobby.settings.turnSeconds });
         lobby.status = 'PLAYING';
       } else if (event.startsWith('game:')) {
         if (!engine || engine.getState().phase === 'GAME_OVER') throw new Error('Game is not active');

@@ -17,12 +17,22 @@ export class GameClient {
       this.id = res.playerId;
       if (this.stopped) return;
       this.dispatch('connect');
-      const saved = localStorage.getItem('monopoly-room');
-      if (saved) { this.roomId = saved; this.emit('lobby:join', { roomId: saved }); }
+      // An invite link (?room=CODE) takes priority over the last saved room.
+      const url = new URL(window.location.href);
+      const invited = url.searchParams.get('room')?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+      if (invited) { url.searchParams.delete('room'); history.replaceState(null, '', url.pathname + url.search + url.hash); }
+      const saved = invited || localStorage.getItem('monopoly-room');
+      if (saved) {
+        if (invited && invited !== localStorage.getItem('monopoly-room')) this.revision = -1;
+        this.emit('lobby:join', { roomId: saved, ...(invited ? this.inviteProfile() : {}) });
+      }
       this.timer = setInterval(() => {
         if (this.roomId && !document.hidden && !this.pollPending) this.emit('room:poll', { roomId: this.roomId });
       }, 1500);
     }).catch(() => this.dispatch('error', 'Verbindung fehlgeschlagen. Bitte lade die Seite neu.'));
+  }
+  private inviteProfile() {
+    try { return JSON.parse(localStorage.getItem('monopoly-profile') || '{}'); } catch { return {}; }
   }
   on(event: string, listener: Listener) {
     this.listeners.set(event, [...(this.listeners.get(event) || []), listener]);
