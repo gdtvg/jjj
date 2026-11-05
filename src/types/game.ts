@@ -110,6 +110,11 @@ export interface TradeOffer {
 }
 
 export interface GameLogEntry {
+  playerId?: string;
+  participantIds?: string[];
+  mentionIds?: string[];
+  tradeId?: string;
+  tradeStatus?: TradeOffer['status'];
   id: string;
   timestamp: number;
   message: string;
@@ -131,6 +136,7 @@ export interface GameState {
   properties: Record<number, PropertyState>;
   pendingCard: Card | null;
   activeTrade: TradeOffer | null;
+  pendingTrades?: TradeOffer[];
   logs: GameLogEntry[];
   winnerId?: string;
   lastActionPrompt?: string;

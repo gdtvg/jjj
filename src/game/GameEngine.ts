@@ -10,6 +10,8 @@ import {
   TradeOffer,
 } from '../types/game';
 
+import { playerReferences } from '../utils/playerReferences';
+
 export class GameEngine {
   private state: GameState;
   private chanceDeck: Card[];
@@ -92,10 +94,15 @@ export class GameEngine {
   public addLog(
     message: string,
     type: GameLogEntry['type'] = 'system',
-    player?: Player
+    player?: Player,
+    details: Partial<Pick<GameLogEntry, 'participantIds' | 'tradeId' | 'tradeStatus'>> = {}
   ): void {
     const entry: GameLogEntry = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: globalThis.crypto.randomUUID(),
+      playerId: player?.id,
+      participantIds: [...new Set([...(player ? [player.id] : []), ...playerReferences(message, this.state.players, type === 'chat').map(ref => ref.playerId)])],
+      mentionIds: type === 'chat' ? [...new Set(playerReferences(message, this.state.players, true).map(ref => ref.playerId))] : [],
+      ...details,
       timestamp: Date.now(),
       message,
       type,
@@ -103,10 +110,7 @@ export class GameEngine {
       playerColor: player?.color,
     };
     this.state.logs.push(entry);
-    // Keep last 100 logs
-    if (this.state.logs.length > 100) {
-      this.state.logs.shift();
-    }
+    // Keep room history in the persisted game snapshot so reconnects lose no messages.
   }
 
   // Rolling the dice
@@ -317,7 +321,7 @@ export class GameEngine {
 
     // Calculate rent
     const rent = this.calculateRent(tile, propState, owner);
-    this.addLog(`${player.name} paid $${rent} rent to ${owner.name}`, 'rent', player);
+    this.addLog(`${player.name} paid $${rent} rent to ${owner.name}`, 'rent', player, { participantIds: [player.id, owner.id] });
     this.transferMoney(player, owner, rent);
     this.state.phase = 'END_TURN';
   }
@@ -458,6 +462,7 @@ export class GameEngine {
         this.state.players.forEach((other) => {
           if (other.id !== player.id && !other.bankrupt) {
             this.transferMoney(player, other, amt);
+            this.addLog(`${player.name} paid $${amt} to ${other.name}`, 'card', player, { participantIds: [player.id, other.id] });
           }
         });
         this.state.phase = 'END_TURN';
@@ -694,6 +699,22 @@ export class GameEngine {
     return { success: true };
   }
 
+  // The legacy activeTrade field remains an alias for older snapshots/clients.
+  public pendingTrades(): TradeOffer[] {
+    return this.state.pendingTrades ?? (this.state.activeTrade ? [this.state.activeTrade] : []);
+  }
+
+  private storeTrades(trades: TradeOffer[]) {
+    this.state.pendingTrades = trades;
+    this.state.activeTrade = trades[0] || null;
+  }
+
+  private finishTrade(trade: TradeOffer, status: TradeOffer['status'], message: string, player?: Player) {
+    trade.status = status;
+    this.storeTrades(this.pendingTrades().filter(t => t.id !== trade.id));
+    this.addLog(message, 'trade', player, { tradeId: trade.id, tradeStatus: status, participantIds: [trade.fromPlayerId, trade.toPlayerId] });
+  }
+
   // Trading
   public proposeTrade(offer: Omit<TradeOffer, 'id' | 'status'>): { success: boolean; message?: string } {
     const fromPlayer = this.state.players.find((p) => p.id === offer.fromPlayerId);
@@ -702,7 +723,7 @@ export class GameEngine {
     if (!fromPlayer || !toPlayer) return { success: false, message: 'Invalid players in trade' };
     if (fromPlayer.money < offer.offeredMoney) return { success: false, message: 'Insufficient cash offered' };
 
-    if (this.state.phase === 'GAME_OVER' || this.state.activeTrade || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.id === toPlayer.id ||
+    if (this.state.phase === 'GAME_OVER' || this.pendingTrades().some(t => t.fromPlayerId === offer.fromPlayerId && t.toPlayerId === offer.toPlayerId) || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.id === toPlayer.id ||
         ![offer.offeredMoney, offer.requestedMoney].every((n) => Number.isSafeInteger(n) && n >= 0) ||
         ![offer.offeredProperties, offer.requestedProperties].every((ids) => Array.isArray(ids) && new Set(ids).size === ids.length) ||
         [...offer.offeredProperties, ...offer.requestedProperties].some((id) => this.state.properties[id]?.houses > 0)) {
@@ -723,18 +744,18 @@ export class GameEngine {
 
     const trade: TradeOffer = {
       ...offer,
-      id: Math.random().toString(36).substring(2, 9),
+      id: globalThis.crypto.randomUUID(),
       status: 'PENDING',
     };
 
-    this.state.activeTrade = trade;
-    this.addLog(`${fromPlayer.name} proposed a trade with ${toPlayer.name}`, 'trade', fromPlayer);
+    this.storeTrades([...this.pendingTrades(), trade]);
+    this.addLog(`${fromPlayer.name} proposed a trade with ${toPlayer.name}`, 'trade', fromPlayer, { tradeId: trade.id, tradeStatus: 'PENDING', participantIds: [fromPlayer.id, toPlayer.id] });
     return { success: true };
   }
 
   public respondTrade(tradeId: string, playerId: string, accept: boolean): { success: boolean; message?: string } {
-    const trade = this.state.activeTrade;
-    if (!trade || trade.id !== tradeId) {
+    const trade = this.pendingTrades().find(t => t.id === tradeId);
+    if (!trade) {
       return { success: false, message: 'Trade no longer active' };
     }
     if (trade.toPlayerId !== playerId) {
@@ -745,27 +766,25 @@ export class GameEngine {
     const toPlayer = this.state.players.find((p) => p.id === trade.toPlayerId);
 
     if (!fromPlayer || !toPlayer) {
-      this.state.activeTrade = null;
+      this.finishTrade(trade, 'CANCELLED', 'Trade cancelled: players unavailable.');
       return { success: false, message: 'Players not found' };
     }
 
     if (!accept) {
-      trade.status = 'REJECTED';
-      this.state.activeTrade = null;
-      this.addLog(`${toPlayer.name} rejected the trade offer.`, 'trade', toPlayer);
+      this.finishTrade(trade, 'REJECTED', `${toPlayer.name} rejected the trade offer from ${fromPlayer.name}.`, toPlayer);
       return { success: true };
     }
 
     if (fromPlayer.bankrupt || toPlayer.bankrupt ||
         !trade.offeredProperties.every((id) => this.state.properties[id]?.ownerId === fromPlayer.id && !this.state.properties[id].houses) ||
         !trade.requestedProperties.every((id) => this.state.properties[id]?.ownerId === toPlayer.id && !this.state.properties[id].houses)) {
-      this.state.activeTrade = null;
+      this.finishTrade(trade, 'CANCELLED', 'Trade cancelled: ownership or buildings have changed.');
       return { success: false, message: 'Trade assets have changed' };
     }
 
     // Check balances
     if (fromPlayer.money < trade.offeredMoney || toPlayer.money < trade.requestedMoney) {
-      this.state.activeTrade = null;
+      this.finishTrade(trade, 'CANCELLED', 'Trade cancelled: insufficient funds to complete trade.');
       return { success: false, message: 'Insufficient funds to complete trade' };
     }
 
@@ -788,19 +807,15 @@ export class GameEngine {
       }
     });
 
-    trade.status = 'ACCEPTED';
-    this.state.activeTrade = null;
-    this.addLog(`Trade accepted between ${fromPlayer.name} and ${toPlayer.name}!`, 'trade', toPlayer);
+    this.finishTrade(trade, 'ACCEPTED', `Trade accepted between ${fromPlayer.name} and ${toPlayer.name}!`, toPlayer);
     return { success: true };
   }
 
-  public cancelTrade(playerId: string): { success: boolean } {
-    if (this.state.activeTrade && (this.state.activeTrade.fromPlayerId === playerId || this.state.activeTrade.toPlayerId === playerId)) {
-      this.state.activeTrade = null;
-      this.addLog('Trade offer cancelled', 'trade');
-      return { success: true };
-    }
-    return { success: false };
+  public cancelTrade(playerId: string, tradeId?: string): { success: boolean; message?: string } {
+    const trade = this.pendingTrades().find(t => (!tradeId || t.id === tradeId) && (t.fromPlayerId === playerId || t.toPlayerId === playerId));
+    if (!trade) return { success: false, message: 'Trade no longer active' };
+    this.finishTrade(trade, 'CANCELLED', 'Trade offer cancelled');
+    return { success: true };
   }
 
   // Money handling helpers
@@ -875,6 +890,9 @@ export class GameEngine {
     if (!player) return { success: false, message: 'Player not found' };
 
     player.bankrupt = true;
+    for (const trade of [...this.pendingTrades()]) {
+      if ([trade.fromPlayerId, trade.toPlayerId].includes(playerId)) this.finishTrade(trade, 'CANCELLED', 'Trade cancelled: player eliminated.');
+    }
     this.addLog(`💀 ${player.name} has declared bankruptcy and is eliminated!`, 'bankrupt', player);
 
     // Release properties to bank

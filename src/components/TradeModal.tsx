@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BOARD_TILES } from '../data/monopolyBoard';
 import { GameState, Player } from '../types/game';
+import { TradeRequests } from './TradeRequests';
 import { PropertyModel } from './PropertyModel';
 import { PROPERTY_COLORS } from '../utils/propertyModel';
 import { Box, X } from 'lucide-react';
@@ -16,9 +17,9 @@ interface TradeModalProps {
     offeredProperties: number[];
     requestedMoney: number;
     requestedProperties: number[];
-  }) => void;
-  onRespondTrade: (tradeId: string, accept: boolean) => void;
-  onCancelTrade: () => void;
+  }) => Promise<boolean>;
+  onRespondTrade: (tradeId: string, accept: boolean) => Promise<boolean>;
+  onCancelTrade: (tradeId?: string) => Promise<boolean>;
 }
 
 export const TradeModal: React.FC<TradeModalProps> = ({
@@ -29,6 +30,12 @@ export const TradeModal: React.FC<TradeModalProps> = ({
   onRespondTrade,
   onCancelTrade,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, []);
   const otherPlayers = gameState.players.filter(
     (p) => p.id !== currentPlayer.id && !p.bankrupt
   );
@@ -52,10 +59,10 @@ export const TradeModal: React.FC<TradeModalProps> = ({
 
   const partner = gameState.players.find((p) => p.id === selectedPartnerId);
 
-  // Active trade pending?
-  const activeTrade = gameState.activeTrade;
-  const isIncomingTrade = activeTrade && activeTrade.toPlayerId === currentPlayer.id;
-  const isOutgoingTrade = activeTrade && activeTrade.fromPlayerId === currentPlayer.id;
+  const pendingTrades = gameState.pendingTrades ?? (gameState.activeTrade ? [gameState.activeTrade] : []);
+  const [sending, setSending] = useState(false);
+  const sendLock = useRef(false);
+  const duplicateOffer = pendingTrades.some(t => t.fromPlayerId === currentPlayer.id && t.toPlayerId === selectedPartnerId);
 
   const myProperties = Object.values(gameState.properties)
     .filter((p) => p.ownerId === currentPlayer.id)
@@ -91,21 +98,30 @@ export const TradeModal: React.FC<TradeModalProps> = ({
     </div>;
   };
 
-  const handleSendOffer = () => {
-    if (!selectedPartnerId) return;
+  const handleSendOffer = async () => {
+    if (!selectedPartnerId || sendLock.current || duplicateOffer) return;
+    sendLock.current = true; setSending(true);
     playSound('money');
-    onProposeTrade({
+    try { await onProposeTrade({
       toPlayerId: selectedPartnerId,
       offeredMoney,
       offeredProperties,
       requestedMoney,
       requestedProperties,
-    });
+    }); } finally { sendLock.current = false; setSending(false); }
   };
 
   return (
     <div className="game-dialog-overlay fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div role="dialog" aria-modal="true" aria-labelledby="trade-title" className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-24px)]">
+      <div ref={dialogRef} tabIndex={-1} onKeyDown={event => {
+        if (event.key === 'Escape') { event.stopPropagation(); onClose(); }
+        if (event.key === 'Tab') {
+          const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') || []);
+          const first = controls[0], last = controls[controls.length - 1];
+          if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last?.focus(); }
+          if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first?.focus(); }
+        }
+      }} role="dialog" aria-modal="true" aria-labelledby="trade-title" className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-24px)]">
         {/* Header */}
         <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950">
           <div className="flex items-center gap-2">
@@ -125,66 +141,7 @@ export const TradeModal: React.FC<TradeModalProps> = ({
         </div>
 
         <div className="trade-scroll-region">
-        {/* Incoming Trade Alert View */}
-        {isIncomingTrade && activeTrade && (
-          <div className="p-6 bg-amber-950/40 border-b border-amber-500/30 flex flex-col gap-4">
-            <div className="flex items-center gap-2 text-amber-300 font-bold text-sm">
-              <span>🔔</span> Incoming Trade Offer from{' '}
-              {gameState.players.find((p) => p.id === activeTrade.fromPlayerId)?.name}!
-            </div>
-            <div className="grid grid-cols-2 gap-4 text-xs bg-slate-950 p-4 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-bold text-emerald-400 block mb-1">They Offer You:</span>
-                <div>Cash: ${activeTrade.offeredMoney}</div>
-                <div>
-                  Properties:{' '}
-                  {activeTrade.offeredProperties.length === 0
-                    ? 'None'
-                    : activeTrade.offeredProperties.map(id => <button key={id} type="button" className="trade-inline-preview" onClick={() => setPreviewId(id)}>{BOARD_TILES[id]?.name} <Box size={12} aria-hidden="true" /></button>)}
-                </div>
-              </div>
-              <div>
-                <span className="font-bold text-amber-400 block mb-1">They Request from You:</span>
-                <div>Cash: ${activeTrade.requestedMoney}</div>
-                <div>
-                  Properties:{' '}
-                  {activeTrade.requestedProperties.length === 0
-                    ? 'None'
-                    : activeTrade.requestedProperties.map(id => <button key={id} type="button" className="trade-inline-preview" onClick={() => setPreviewId(id)}>{BOARD_TILES[id]?.name} <Box size={12} aria-hidden="true" /></button>)}
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => onRespondTrade(activeTrade.id, false)}
-                className="cursor-pointer px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold"
-              >
-                Decline Offer
-              </button>
-              <button
-                onClick={() => onRespondTrade(activeTrade.id, true)}
-                className="cursor-pointer px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs"
-              >
-                Accept Trade
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Outgoing pending notification */}
-        {isOutgoingTrade && (
-          <div className="p-4 bg-blue-950/40 border-b border-blue-500/30 flex items-center justify-between">
-            <span className="text-xs text-blue-300 font-semibold">
-              Waiting for trade partner response...
-            </span>
-            <button
-              onClick={onCancelTrade}
-              className="cursor-pointer text-xs font-bold text-red-400 hover:text-red-300"
-            >
-              Cancel Trade Offer
-            </button>
-          </div>
-        )}
+        <div className="px-5 pt-4"><TradeRequests state={gameState} playerId={currentPlayer.id} respond={onRespondTrade} cancel={onCancelTrade} onPreview={setPreviewId} /></div>
 
         {/* Trade Creator form */}
         <div className="p-5 space-y-5">
@@ -324,7 +281,7 @@ export const TradeModal: React.FC<TradeModalProps> = ({
           <button
             onClick={handleSendOffer}
             disabled={
-              !partner ||
+              sending || duplicateOffer || !partner ||
               (offeredMoney === 0 &&
                 offeredProperties.length === 0 &&
                 requestedMoney === 0 &&
@@ -332,7 +289,7 @@ export const TradeModal: React.FC<TradeModalProps> = ({
             }
             className="cursor-pointer px-6 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Send Trade Offer
+            {sending ? 'Wird gesendet …' : duplicateOffer ? 'Angebot ausstehend' : 'Angebot senden'}
           </button>
         </div>
       </div>

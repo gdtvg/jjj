@@ -40,13 +40,16 @@ export const PlayerScoreboard: React.FC<PlayerScoreboardProps> = ({
         {gameState.players.map((player) => {
           const isActive = activePlayer?.id === player.id;
           const isMe = player.id === currentPlayer.id;
+          const recent = [...gameState.logs].reverse().find(entry => entry.participantIds?.includes(player.id) && ((entry.type === 'chat' && entry.mentionIds?.length) || (entry.participantIds?.length || 0) > 1));
+          const highlightAge = recent ? Math.max(0, Date.now() - recent.timestamp) : 5000;
           const stats = getPlayerStats(player.id);
           const totalWealth = player.money + stats.assetValue;
 
           return (
             <div
               key={player.id}
-              className={`relative rounded-xl p-3 border transition-all flex items-center justify-between backdrop-blur-md ${
+              style={highlightAge < 4500 ? { animationDelay: `-${highlightAge}ms` } : undefined}
+              className={`${highlightAge < 4500 ? 'player-interaction-highlight' : ''} relative rounded-xl p-3 border transition-all flex items-center justify-between backdrop-blur-md ${
                 player.bankrupt
                   ? 'bg-slate-950/40 border-slate-900 opacity-40 grayscale'
                   : isActive

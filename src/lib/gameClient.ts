@@ -9,6 +9,7 @@ export class GameClient {
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private pollPending = false;
+  private pollFailure = '';
   private queue: Promise<unknown> = Promise.resolve();
   private ready: Promise<void>;
   constructor() {
@@ -45,6 +46,7 @@ export class GameClient {
       if (this.stopped) return;
       try {
         const result = await this.request(event, data);
+        if (event === 'room:poll') this.pollFailure = '';
         if (event === 'lobby:leave') {
           this.roomId = null; this.revision = -1; localStorage.removeItem('monopoly-room');
         } else {
@@ -66,7 +68,8 @@ export class GameClient {
         if (message === 'You are no longer in this room' || message === 'Room not found') {
           this.roomId = null; localStorage.removeItem('monopoly-room'); this.dispatch('lobby:kicked');
         }
-        this.dispatch('error', message);
+        if (!callback && (event !== 'room:poll' || this.pollFailure !== message)) this.dispatch('error', message);
+        if (event === 'room:poll') this.pollFailure = message;
         callback?.({ success: false, error: message });
       } finally {
         if (event === 'room:poll') this.pollPending = false;

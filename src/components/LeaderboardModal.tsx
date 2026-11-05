@@ -5,9 +5,10 @@ import { playSound } from '../utils/sound';
 interface LeaderboardModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onError?: (message: string) => void;
 }
 
-export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onClose }) => {
+export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onClose, onError }) => {
   const [records, setRecords] = useState<LeaderboardRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,9 +19,9 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
       setError(null);
       fetchGlobalLeaderboard().then((data) => {
         setRecords(data);
-      }).catch(() => setError('Rangliste konnte nicht geladen werden. Bitte versuche es erneut.')).finally(() => setLoading(false));
+      }).catch(() => { const message = 'Rangliste konnte nicht geladen werden. Bitte versuche es erneut.'; setError(message); onError?.(message); }).finally(() => setLoading(false));
     }
-  }, [isOpen]);
+  }, [isOpen, onError]);
 
   if (!isOpen) return null;
 

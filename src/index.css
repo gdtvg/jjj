@@ -203,3 +203,44 @@ button, summary, input { -webkit-tap-highlight-color: transparent; }
 @media (max-height: 600px) { .purchase-dialog .purchase-model-area { height: 145px; } }
 
 .purchase-countdown { padding: 8px 22px; flex-shrink: 0; border-bottom: 1px solid #c8b58b25; }
+
+/* Multiplayer messages use the existing brass, green and slate palette. */
+.game-notifications { position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); width: min(380px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; z-index: 100; pointer-events: none; }
+.game-notice { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid #bfa26970; background: #1c2823f5; color: #e9ece2; border-radius: 12px; box-shadow: 0 8px 28px #0b141250; font-size: 12px; pointer-events: auto; animation: notice-enter .2s ease-out; }
+.game-notice > svg { flex-shrink: 0; color: #c9b584; }
+.game-notice p { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.game-notice button { flex-shrink: 0; cursor: pointer; padding: 2px; border-radius: 4px; }
+.game-notice[data-kind="error"] { border-color: #c67f6b; }
+.game-notice[data-kind="error"] > svg { color: #e3a18c; }
+.game-notice[data-kind="success"] > svg { color: #8fc5a5; }
+.game-notice.notice-leaving { animation: notice-leave .2s ease-in forwards; }
+@keyframes notice-enter { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes notice-leave { to { opacity: 0; transform: translateX(10px); } }
+.chat-compose { position: relative; }
+.chat-mention-list { position: absolute; bottom: calc(100% + 4px); left: 8px; right: 8px; max-height: min(220px, 35dvh); overflow-y: auto; z-index: 5; border: 1px solid #bfa26980; background: #17251ff5; box-shadow: 0 -6px 24px #0b141250; border-radius: 12px; padding: 4px; }
+.chat-mention-list button { display: flex; align-items: center; gap: 9px; text-align: left; width: 100%; min-height: 38px; padding: 8px 10px; border-radius: 8px; color: #e9ece2; cursor: pointer; font-size: 12px; }
+.chat-mention-list button[aria-selected="true"], .chat-mention-list button:hover { background: #bfa26925; }
+.chat-mention-list button > span:nth-child(2) { flex: 1; overflow-wrap: anywhere; }
+.chat-mention-list small { color: #a6b4a6; font-size: 9px; }
+.chat-player-reference { background: transparent; font-weight: 800; border-radius: 3px; padding: 0 2px; }
+.chat-message-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-highlight, .player-interaction-highlight { animation: multiplayer-highlight 4.5s ease-out both; }
+@keyframes multiplayer-highlight { 0%, 16% { background-color: #bfa26930; box-shadow: inset 0 0 12px #bfa26945; } 35% { background-color: #bfa26918; box-shadow: inset 0 0 4px #bfa26920; } 50% { background-color: #bfa26928; box-shadow: inset 0 0 10px #bfa26935; } 100% { background-color: transparent; box-shadow: inset 0 0 0 transparent; } }
+.trade-requests { display: flex; flex-direction: column; gap: 10px; }
+.trade-request { padding: 12px; margin-bottom: 10px; border: 1px solid #bfa26970; border-radius: 12px; background: #1c2823; font-size: 11px; color: #dce3d8; }
+.trade-request h3 { font-weight: 800; font-size: 12px; overflow-wrap: anywhere; }
+.trade-request small { display: block; margin-top: 3px; color: #c5b181; font-size: 10px; }
+.trade-request-assets { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 12px 0; }
+.trade-request-assets h4 { color: #9fb6a6; font-size: 10px; margin-bottom: 4px; }
+.trade-request-assets strong, .trade-request-assets span { display: block; }
+.trade-request-assets ul { margin-top: 4px; overflow-wrap: anywhere; }
+.trade-request-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.trade-request-actions button { cursor: pointer; padding: 8px 12px; border: 1px solid #9eae9c50; border-radius: 7px; font-weight: 800; min-height: 34px; }
+.trade-request-actions .trade-accept { background: #29754f; color: #f0f9ef; }
+.trade-request-actions .trade-decline { background: #973f3c; color: #fff0eb; }
+.trade-request-actions button:disabled { opacity: .5; cursor: wait; }
+.trade-request-actions button:focus-visible, .game-notice button:focus-visible { outline: 2px solid #d4bc82; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .chat-highlight, .player-interaction-highlight { animation: none; } .game-notice, .game-notice.notice-leaving { animation-duration: .01ms; } }
+
+.sidebar-toggle { position: relative; }
+.pending-trade-count { position: absolute; right: -5px; top: -5px; min-width: 16px; height: 16px; padding: 0 3px; display: grid; place-items: center; border-radius: 8px; background: #d5bb83; color: #222b23; font-size: 9px; font-weight: 800; }

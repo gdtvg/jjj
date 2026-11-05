@@ -104,22 +104,30 @@ export default async (req: Request) => {
           'game:bankrupt': () => engine!.declareBankruptcy(playerId),
           'game:trade_propose': () => engine!.proposeTrade({ ...data.tradeOffer, fromPlayerId: playerId }),
           'game:trade_respond': () => engine!.respondTrade(data.tradeId, playerId, Boolean(data.accept)),
-          'game:trade_cancel': () => engine!.cancelTrade(playerId),
+          'game:trade_cancel': () => engine!.cancelTrade(playerId, data.tradeId),
           'game:chat': () => { const message = String(data.message || '').trim().slice(0, 150); if (message) engine!.addLog(message, 'chat', player); },
         };
         if (!actions[event]) throw new Error('Unknown action');
+        const logCountBeforeAction = engine.getState().logs.length;
         const action = actions[event]();
-        if (action && !action.success) throw new Error(action.message || 'Action is unavailable');
+        if (action && !action.success) {
+          // A failed acceptance can intentionally cancel an invalid offer. Commit
+          // that terminal event so both traders see it rather than rolling it back.
+          const terminal = engine.getState().logs.at(-1);
+          const cancelled = engine.getState().logs.length > logCountBeforeAction && event === 'game:trade_respond' && terminal?.tradeId === data.tradeId && terminal?.tradeStatus === 'CANCELLED';
+          if (!cancelled) throw new Error(action.message || 'Action is unavailable');
+        }
       } else if (!['room:poll', 'lobby:join', 'lobby:ready'].includes(event)) throw new Error('Unknown action');
       // One step per poll keeps bots progressing without a background server or timers.
       if (engine && engine.getState().phase !== 'GAME_OVER') {
         if (engine.timeoutStep()) changed = true;
         if (engine.botStep()) changed = true;
         if (engine.syncTurnClock()) changed = true;
-        const trade = engine.getState().activeTrade;
-        if (trade && engine.getState().players.find(p => p.id === trade.toPlayerId)?.isBot) {
-          engine.respondTrade(trade.id, trade.toPlayerId, false);
-          changed = true;
+        for (const trade of engine.pendingTrades()) {
+          if (engine.getState().players.find(p => p.id === trade.toPlayerId)?.isBot) {
+            engine.respondTrade(trade.id, trade.toPlayerId, false);
+            changed = true;
+          }
         }
       }
       if (changed) {
