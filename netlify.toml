@@ -1,0 +1,13 @@
+[build]
+  command = "bun run build"
+  publish = "dist"
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+[dev]
+  command = "npx vite --host 0.0.0.0"
+  targetPort = 5173
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

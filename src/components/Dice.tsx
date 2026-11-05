@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface DiceProps {
   value: number;
@@ -7,6 +7,13 @@ interface DiceProps {
 }
 
 export const Dice: React.FC<DiceProps> = ({ value, size = 'md', rolling = false }) => {
+  const [displayValue, setDisplayValue] = useState(value);
+  useEffect(() => {
+    if (!rolling) { setDisplayValue(value); return; }
+    let face = 0;
+    const timer = setInterval(() => { face = (face + 1) % 6; setDisplayValue(face + 1); }, 85);
+    return () => clearInterval(timer);
+  }, [rolling, value]);
   const sizeClasses = {
     sm: 'w-8 h-8 rounded-lg shadow-sm p-1.5',
     md: 'w-12 h-12 rounded-xl shadow-md p-2',
@@ -39,12 +46,13 @@ export const Dice: React.FC<DiceProps> = ({ value, size = 'md', rolling = false 
     }
   };
 
-  const positions = getPipPositions(Math.max(1, Math.min(6, value || 1)));
+  const positions = getPipPositions(Math.max(1, Math.min(6, displayValue || 1)));
 
   return (
     <div
+      role="img" aria-label={rolling ? "Würfel wird geworfen" : `Würfel: ${value}`}
       className={`relative bg-gradient-to-br from-stone-50 via-white to-stone-200 border-2 border-stone-300 text-slate-900 grid grid-cols-3 grid-rows-3 select-none transform transition-transform duration-300 ${sizeClasses} ${
-        rolling ? 'animate-spin scale-110' : 'hover:scale-105 shadow-amber-500/10'
+        rolling ? 'dice-tumbling' : 'hover:scale-105 shadow-amber-500/10'
       }`}
       style={{
         boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.8), 0 4px 10px rgba(0,0,0,0.3)',
@@ -55,7 +63,7 @@ export const Dice: React.FC<DiceProps> = ({ value, size = 'md', rolling = false 
           key={idx}
           style={{ gridRow: row, gridColumn: col }}
           className={`m-auto rounded-full bg-slate-900 shadow-inner ${pipSize} ${
-            value === 1 ? 'bg-red-600' : 'bg-slate-900'
+            displayValue === 1 ? 'bg-red-600' : 'bg-slate-900'
           }`}
         />
       ))}

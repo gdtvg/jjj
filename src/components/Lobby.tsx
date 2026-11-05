@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AVAILABLE_TOKENS, PLAYER_COLORS } from '../data/monopolyBoard';
+import { AVAILABLE_TOKENS, PLAYER_COLORS, MAX_PLAYERS, TURN_LIMIT_OPTIONS } from '../data/monopolyBoard';
 import { LobbyRoom, Player, PlayerToken } from '../types/game';
 import { playSound } from '../utils/sound';
 
@@ -12,6 +12,7 @@ interface LobbyProps {
   onRemovePlayer: (playerId: string) => void;
   onStartGame: () => void;
   onLeaveLobby: () => void;
+  onUpdateSettings: (settings: { maxPlayers: number; turnSeconds: number }) => void;
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
@@ -23,6 +24,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   onRemovePlayer,
   onStartGame,
   onLeaveLobby,
+  onUpdateSettings,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -30,7 +32,19 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [selectedColor, setSelectedColor] = useState<string>(currentPlayer.color);
   const [nameInput, setNameInput] = useState<string>(currentPlayer.name);
 
+  const [linkCopied, setLinkCopied] = useState(false);
   const isHost = currentPlayer.isHost;
+  const settings = { maxPlayers: MAX_PLAYERS, turnSeconds: 25, ...lobby.settings };
+  const inviteLink = `${window.location.origin}/?room=${lobby.roomId}`;
+  const handleCopyLink = async () => {
+    playSound('click');
+    try {
+      if (navigator.share && window.matchMedia('(pointer: coarse)').matches) await navigator.share({ title: 'Monopoly Lobby', text: `Spiel mit! Lobbycode ${lobby.roomId}`, url: inviteLink });
+      else await navigator.clipboard.writeText(inviteLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch { /* share sheet dismissed */ }
+  };
   const canStart =
     isHost &&
     lobby.players.length >= 2 &&
@@ -74,7 +88,14 @@ export const Lobby: React.FC<LobbyProps> = ({
             className="cursor-pointer ml-2 p-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
             title="Copy room code"
           >
-            {copied ? '✓ Copied' : '📋 Copy'}
+            {copied ? '✓ Copied' : '📋 Code'}
+          </button>
+          <button
+            onClick={handleCopyLink}
+            className="cursor-pointer p-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold transition-colors"
+            title={inviteLink}
+          >
+            {linkCopied ? '✓ Link kopiert' : '🔗 Einladungslink'}
           </button>
         </div>
       </div>
@@ -85,9 +106,9 @@ export const Lobby: React.FC<LobbyProps> = ({
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300">
-                Connected Players ({lobby.players.length}/6)
+                Connected Players ({lobby.players.length}/{settings.maxPlayers})
               </h2>
-              {isHost && lobby.players.length < 6 && (
+              {isHost && lobby.players.length < settings.maxPlayers && (
                 <button
                   onClick={() => {
                     playSound('click');
@@ -100,7 +121,7 @@ export const Lobby: React.FC<LobbyProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[46vh] overflow-y-auto pr-1">
               {lobby.players.map((player) => {
                 const isMe = player.id === currentPlayer.id;
                 return (
@@ -294,7 +315,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   <label className="block text-xs font-semibold text-slate-400 mb-1">
                     Player Color
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {PLAYER_COLORS.map((color) => (
                       <button
                         key={color}
@@ -320,6 +341,32 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </button>
               </div>
             )}
+
+            {/* Room settings (host editable) */}
+            <div className="mt-6 space-y-3 pt-4 border-t border-slate-800">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300">Raumeinstellungen</h2>
+              <label className="block text-xs font-semibold text-slate-400">
+                Max. Spieler: <span className="text-amber-400">{settings.maxPlayers}</span>
+                <input
+                  type="range" min={Math.max(2, lobby.players.length)} max={MAX_PLAYERS} value={settings.maxPlayers}
+                  disabled={!isHost}
+                  onChange={(e) => onUpdateSettings({ ...settings, maxPlayers: Number(e.target.value) })}
+                  className="w-full accent-amber-500 mt-1 disabled:opacity-50"
+                />
+              </label>
+              <label className="block text-xs font-semibold text-slate-400">
+                Zeitlimit pro Aktion (automatisch würfeln / Zug beenden)
+                <select
+                  value={settings.turnSeconds}
+                  disabled={!isHost}
+                  onChange={(e) => onUpdateSettings({ ...settings, turnSeconds: Number(e.target.value) })}
+                  className="w-full mt-1 bg-slate-950 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm disabled:opacity-60"
+                >
+                  {TURN_LIMIT_OPTIONS.map((s) => <option key={s} value={s}>{s === 0 ? 'Aus – kein Zeitlimit' : `${s} Sekunden`}</option>)}
+                </select>
+              </label>
+              {!isHost && <p className="text-[11px] text-slate-500">Nur der Host kann die Einstellungen ändern.</p>}
+            </div>
 
             {/* Quick Game Info */}
             <div className="mt-6 space-y-2 text-xs text-slate-400">

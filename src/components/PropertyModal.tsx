@@ -47,8 +47,8 @@ export const PropertyModal: React.FC<PropertyModalProps> = ({
     .map((p) => BOARD_TILES[p.tileId]);
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="game-dialog-overlay fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-24px)]">
         {/* Header */}
         <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950">
           <div className="flex items-center gap-2">
@@ -67,7 +67,7 @@ export const PropertyModal: React.FC<PropertyModalProps> = ({
         </div>
 
         {/* Content body: Left list of owned properties, Right deed card */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-5 overflow-hidden">
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-5 overflow-y-auto">
           {/* Left panel: Your portfolio */}
           <div className="md:col-span-2 border-r border-slate-800 p-3 overflow-y-auto max-h-[60vh] space-y-2">
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-1 mb-2">

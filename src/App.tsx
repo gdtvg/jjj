@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { io, Socket } from 'socket.io-client';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { GameClient } from './lib/gameClient';
+import { Trophy, Copy, Check, Volume2, VolumeX, Maximize, Minimize, Crown, PanelRight, MoreHorizontal, X, LogOut } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { hasNewRoll, movementDuration, ROLL_DURATION } from './utils/gamePresentation';
 import { Board } from './components/Board';
 import { ThreeBoardScene } from './components/ThreeBoardScene';
 import { ASSETS } from './assets/assetMap';
 import { Lobby } from './components/Lobby';
 import { PlayerScoreboard, ActionBar } from './components/PlayerHUD';
+import { PropertyPurchase } from './components/PropertyPurchase';
 import { PropertyModal } from './components/PropertyModal';
 import { TradeModal } from './components/TradeModal';
 import { CardModal } from './components/CardModal';
@@ -13,11 +16,14 @@ import { GameLog } from './components/GameLog';
 import { AVAILABLE_TOKENS, PLAYER_COLORS, BOARD_TILES } from './data/monopolyBoard';
 import { BoardTile, GameState, LobbyRoom, Player, PlayerToken } from './types/game';
 import { playSound, toggleSound, isSoundMuted } from './utils/sound';
-import { testFirebaseConnection, recordGameVictory } from './lib/firebase';
 import { LeaderboardModal } from './components/LeaderboardModal';
 
+import { useNotifications } from './hooks/useNotifications';
+import { Notifications } from './components/Notifications';
+import { TradeRequests } from './components/TradeRequests';
+
 export default function App() {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [socket, setSocket] = useState<GameClient | null>(null);
   const [view, setView] = useState<'MENU' | 'LOBBY' | 'GAME'>('MENU');
 
   // Player identity setup in Menu
@@ -25,11 +31,19 @@ export default function App() {
   const [playerToken, setPlayerToken] = useState<PlayerToken>('🎩');
   const [playerColor, setPlayerColor] = useState<string>(PLAYER_COLORS[0]);
   const [joinRoomCode, setJoinRoomCode] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { notices, notify, dismiss } = useNotifications();
+  useEffect(() => { localStorage.setItem('monopoly-profile', JSON.stringify({ playerName, token: playerToken, color: playerColor })); }, [playerName, playerToken, playerColor]);
+  const tradeOpenRef = useRef(false);
+  const tradeActionLocks = useRef(new Set<string>());
   const [copiedLink, setCopiedLink] = useState(false);
   const [soundMuted, setSoundMutedState] = useState(isSoundMuted());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDiceSettling, setIsDiceSettling] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
+  const [rollValues, setRollValues] = useState<[number, number]>([1, 1]);
   const [isRollingDice, setIsRollingDice] = useState(false);
+  const [infoPanelOpen, setInfoPanelOpen] = useState(false);
+  const [infoTab, setInfoTab] = useState<'players' | 'log'>('players');
   const [boardMode, setBoardMode] = useState<'3D' | '2D'>('3D');
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
 
@@ -37,24 +51,29 @@ export default function App() {
   const [lobbyData, setLobbyData] = useState<LobbyRoom | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [liveGameState, setLiveGameState] = useState<GameState | null>(null);
 
   // Modals
+  const [dismissedPurchase, setDismissedPurchase] = useState<string | null>(null);
   const [inspectedTile, setInspectedTile] = useState<BoardTile | null>(null);
   const [isPropertyModalOpen, setIsPropertyModalOpen] = useState(false);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
 
-  // Initialize socket
-  useEffect(() => {
-    const s = io({
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-    });
+  tradeOpenRef.current = isTradeModalOpen;
 
-    s.on('connect', () => {
-      // connected to server
-      testFirebaseConnection();
-    });
+  // Connect to the game API
+  useEffect(() => {
+    const s = new GameClient();
+    let gameStarted = false;
+    let victoryShown = false;
+    let previousState: GameState | null = null;
+    let presentation = Promise.resolve();
+    let receivedRoom = '';
+    const seenLogs = new Set<string>();
+    let disposed = false;
+    const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    s.on('error', (message: string) => { notify(message, 'error'); setIsRollingDice(false); setIsDiceSettling(false); });
+    s.on('lobby:joined', () => setView('LOBBY'));
 
     s.on('lobby:update', (updatedLobby: LobbyRoom) => {
       setLobbyData(updatedLobby);
@@ -64,47 +83,77 @@ export default function App() {
 
     s.on('game:started', () => {
       setView('GAME');
-      playSound('money');
+      if (!gameStarted) playSound('money');
+      gameStarted = true;
     });
 
     s.on('game:state', (state: GameState) => {
-      setGameState(state);
-      setIsRollingDice(false);
-      if (state.phase === 'GAME_OVER') {
-        confetti({
-          particleCount: 150,
-          spread: 80,
-          origin: { y: 0.6 },
-        });
-        playSound('victory');
-
-        // Persist victory to Firebase Firestore
-        const winner = state.winnerId
-          ? state.players.find((p) => p.id === state.winnerId)
-          : state.players.find((p) => !p.bankrupt);
-        if (winner) {
-          const totalPropVal = Object.values(state.properties)
-            .filter((p) => p.ownerId === winner.id)
-            .reduce((sum, p) => {
-              const tile = BOARD_TILES[p.tileId];
-              return sum + (tile?.price || 0) + (p.houses || 0) * (tile?.houseCost || 50);
-            }, 0);
-          recordGameVictory(
-            winner.name,
-            winner.money + totalPropVal,
-            state.roomId,
-            state.logs?.length || 1,
-            state.players.length
-          );
+      setLiveGameState(state);
+      const initial = receivedRoom !== state.roomId;
+      if (initial) { receivedRoom = state.roomId; seenLogs.clear(); }
+      const cursorKey = `monopoly-notices:${s.id}:${state.roomId}`;
+      const resumeIndex = initial ? state.logs.findIndex(entry => entry.id === sessionStorage.getItem(cursorKey)) : -1;
+      for (const [entryIndex, entry] of state.logs.entries()) {
+        if (seenLogs.has(entry.id)) continue;
+        seenLogs.add(entry.id);
+        if (initial && (resumeIndex < 0 || entryIndex <= resumeIndex)) continue;
+        if (entry.type === 'chat' && entry.mentionIds?.includes(s.id) && entry.playerId !== s.id) {
+          notify(`${entry.playerName || 'Ein Spieler'} erwähnt dich: ${entry.message}`, 'info', `${state.roomId}:${entry.id}`);
+        } else if (entry.type === 'trade' && entry.participantIds?.includes(s.id)) {
+          notify(entry.message, entry.tradeStatus === 'ACCEPTED' ? 'success' : entry.tradeStatus === 'CANCELLED' ? 'error' : 'info', `${state.roomId}:${entry.id}`);
+        } else if ((entry.playerId === s.id && ['purchase', 'system', 'jail'].includes(entry.type)) || (entry.participantIds?.includes(s.id) && (entry.participantIds?.length || 0) > 1)) {
+          notify(entry.message, entry.type === 'purchase' ? 'success' : 'info', `${state.roomId}:${entry.id}`);
         }
       }
+      const latestLog = state.logs.at(-1);
+      if (latestLog) sessionStorage.setItem(cursorKey, latestLog.id);
+      presentation = presentation.then(async () => {
+        if (disposed) return;
+        if (previousState?.roomId !== state.roomId) previousState = null;
+        const rolled = !tradeOpenRef.current && previousState && hasNewRoll(previousState, state);
+        const moveTime = !tradeOpenRef.current && previousState ? movementDuration(previousState, state) : 0;
+        if (rolled) {
+          setRollValues(state.dice);
+          setIsRollingDice(true);
+          playSound('roll');
+          await pause(ROLL_DURATION);
+          if (disposed) return;
+        }
+        setRollValues(state.dice);
+        if (rolled) {
+          setIsDiceSettling(true);
+          setIsRollingDice(false);
+          await pause(650);
+          if (disposed) return;
+          setIsDiceSettling(false);
+        }
+        setIsRollingDice(false);
+        setIsMoving(moveTime > 0);
+        setGameState(state);
+        const me = state.players.find(p => p.id === s.id);
+        if (me) setCurrentPlayer(me);
+        previousState = state;
+        if (moveTime) await pause(moveTime + 100);
+        if (disposed) return;
+        setIsMoving(false);
+        if (state.pendingCard && !tradeOpenRef.current) await pause(1800);
+        if (disposed) return;
+        if (state.phase !== 'GAME_OVER') victoryShown = false;
+        if (state.phase === 'GAME_OVER' && !victoryShown) {
+          victoryShown = true;
+          confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+          playSound('victory');
+        }
+      });
     });
 
     s.on('lobby:kicked', () => {
       setView('MENU');
       setLobbyData(null);
       setCurrentPlayer(null);
-      setErrorMessage('You were removed from the lobby');
+      setGameState(null);
+      setLiveGameState(null);
+      notify('Du bist nicht mehr in diesem Raum.', 'error');
     });
 
     setSocket(s);
@@ -115,15 +164,13 @@ export default function App() {
     document.addEventListener('fullscreenchange', handleFsChange);
 
     return () => {
+      disposed = true;
       s.disconnect();
       document.removeEventListener('fullscreenchange', handleFsChange);
     };
   }, []);
 
-  const triggerError = (msg: string) => {
-    setErrorMessage(msg);
-    setTimeout(() => setErrorMessage(null), 4000);
-  };
+  const triggerError = useCallback((msg: string) => { notify(msg, 'error'); }, [notify]);
 
   const handleToggleFullscreen = () => {
     playSound('click');
@@ -214,9 +261,12 @@ export default function App() {
           setCurrentPlayer(res.player);
 
           // Add 3 bots sequentially then start
-          socket.emit('lobby:add_bot', { roomId }, () => {
-            socket.emit('lobby:add_bot', { roomId }, () => {
-              socket.emit('lobby:add_bot', { roomId }, () => {
+          socket.emit('lobby:add_bot', { roomId }, (result: any) => {
+            if (!result.success) return;
+            socket.emit('lobby:add_bot', { roomId }, (result: any) => {
+              if (!result.success) return;
+              socket.emit('lobby:add_bot', { roomId }, (result: any) => {
+              if (!result.success) return;
                 socket.emit('game:start', { roomId });
               });
             });
@@ -239,6 +289,11 @@ export default function App() {
     socket.emit('lobby:update_player', { roomId: lobbyData.roomId, token, color, name });
   };
 
+  const handleUpdateSettings = (settings: { maxPlayers: number; turnSeconds: number }) => {
+    if (!socket || !lobbyData) return;
+    socket.emit('lobby:settings', { roomId: lobbyData.roomId, ...settings }, (res: any) => { if (!res.success) triggerError(res.error || 'Einstellung fehlgeschlagen'); });
+  };
+
   const handleAddBot = () => {
     if (!socket || !lobbyData) return;
     socket.emit('lobby:add_bot', { roomId: lobbyData.roomId });
@@ -259,27 +314,30 @@ export default function App() {
   };
 
   const handleLeaveLobby = () => {
+    if (lobbyData) socket?.emit('lobby:leave', { roomId: lobbyData.roomId });
     setView('MENU');
     setLobbyData(null);
     setCurrentPlayer(null);
     setGameState(null);
+    setLiveGameState(null);
+    setIsTradeModalOpen(false);
   };
 
   // In-Game Socket Operations
   const handleRollDice = () => {
-    if (!socket || !gameState) return;
+    if (!socket || !gameState || isRollingDice || isDiceSettling || isMoving) return;
     setIsRollingDice(true);
     socket.emit('game:roll', { roomId: gameState.roomId });
   };
 
-  const handleBuyProperty = (tileId: number) => {
-    if (!socket || !gameState) return;
-    socket.emit('game:buy', { roomId: gameState.roomId, tileId });
+  const handleBuyProperty = (tileId: number): Promise<boolean> => {
+    if (!socket || !gameState) return Promise.resolve(false);
+    return new Promise(resolve => socket.emit('game:buy', { roomId: gameState.roomId, tileId }, (result: any) => { if (!result.success) notify(result.error || 'Die Aktion ist fehlgeschlagen.', 'error'); resolve(Boolean(result.success)); }));
   };
 
-  const handleDeclineProperty = () => {
-    if (!socket || !gameState) return;
-    socket.emit('game:decline', { roomId: gameState.roomId });
+  const handleDeclineProperty = (): Promise<boolean> => {
+    if (!socket || !gameState) return Promise.resolve(false);
+    return new Promise(resolve => socket.emit('game:decline', { roomId: gameState.roomId }, (result: any) => { if (!result.success) notify(result.error || 'Die Aktion ist fehlgeschlagen.', 'error'); resolve(Boolean(result.success)); }));
   };
 
   const handlePayJailFine = () => {
@@ -317,23 +375,18 @@ export default function App() {
     socket.emit('game:unmortgage', { roomId: gameState.roomId, tileId });
   };
 
-  const handleProposeTrade = (tradeOffer: any) => {
-    if (!socket || !gameState) return;
-    socket.emit('game:trade_propose', { roomId: gameState.roomId, tradeOffer });
-    setIsTradeModalOpen(false);
+  const tradeCommand = (event: string, data: object, key: string): Promise<boolean> => {
+    if (!socket || !gameState || tradeActionLocks.current.has(key)) return Promise.resolve(false);
+    tradeActionLocks.current.add(key);
+    return new Promise(resolve => socket.emit(event, { roomId: gameState.roomId, ...data }, (result: any) => {
+      tradeActionLocks.current.delete(key);
+      if (!result?.success) notify(result?.error || 'Die Handelsaktion ist fehlgeschlagen.', 'error');
+      resolve(Boolean(result?.success));
+    }));
   };
-
-  const handleRespondTrade = (tradeId: string, accept: boolean) => {
-    if (!socket || !gameState) return;
-    socket.emit('game:trade_respond', { roomId: gameState.roomId, tradeId, accept });
-    setIsTradeModalOpen(false);
-  };
-
-  const handleCancelTrade = () => {
-    if (!socket || !gameState) return;
-    socket.emit('game:trade_cancel', { roomId: gameState.roomId });
-    setIsTradeModalOpen(false);
-  };
+  const handleProposeTrade = (tradeOffer: any) => tradeCommand('game:trade_propose', { tradeOffer }, 'propose');
+  const handleRespondTrade = (tradeId: string, accept: boolean) => tradeCommand('game:trade_respond', { tradeId, accept }, tradeId);
+  const handleCancelTrade = (tradeId?: string) => tradeCommand('game:trade_cancel', { tradeId }, tradeId || 'cancel');
 
   const handleEndTurn = () => {
     if (!socket || !gameState) return;
@@ -347,32 +400,37 @@ export default function App() {
     }
   };
 
-  const handleSendMessage = (message: string) => {
-    if (!socket || !gameState) return;
-    socket.emit('game:chat', { roomId: gameState.roomId, message });
+  const handleSendMessage = (message: string): Promise<boolean> => {
+    if (!socket || !gameState) return Promise.resolve(false);
+    return new Promise(resolve => socket.emit('game:chat', { roomId: gameState.roomId, message }, (result: any) => {
+      if (!result?.success) notify(result?.error || 'Nachricht konnte nicht gesendet werden.', 'error');
+      resolve(Boolean(result?.success));
+    }));
   };
 
   const canRollNow = Boolean(
-    gameState?.phase === 'ROLL' &&
+    !isRollingDice && !isDiceSettling && !isMoving && gameState?.phase === 'ROLL' &&
       currentPlayer &&
       gameState.players[gameState.activePlayerIndex]?.id === currentPlayer.id
   );
 
+  const activeBuyer = gameState?.players[gameState.activePlayerIndex];
+  const purchaseTile = gameState?.phase === 'ACTION' && activeBuyer && activeBuyer.id === currentPlayer?.id && !activeBuyer?.bankrupt
+    && !gameState.properties[activeBuyer.position]?.ownerId ? BOARD_TILES[activeBuyer.position] : null;
+  const purchaseKey = purchaseTile && gameState ? `${gameState.roomId}:${purchaseTile.id}:${gameState.logs.filter(log => log.type === 'roll').at(-1)?.id}` : null;
+  const pendingTradeCount = (liveGameState?.pendingTrades ?? (liveGameState?.activeTrade ? [liveGameState.activeTrade] : [])).filter(t => t.toPlayerId === currentPlayer?.id).length;
+  const showPurchase = Boolean(purchaseTile && purchaseKey !== dismissedPurchase && !isRollingDice && !isDiceSettling && !isMoving && !isPropertyModalOpen && !isTradeModalOpen && !isLeaderboardOpen);
+
   return (
     <div
-      className="h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans select-none selection:bg-amber-500 selection:text-slate-950 relative"
+      className="app-shell overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans select-none selection:bg-amber-500 selection:text-slate-950 relative"
       style={{
         backgroundImage: `linear-gradient(to bottom, rgba(6, 9, 18, 0.88), rgba(6, 9, 18, 0.95)), url(${ASSETS.penthouseBg})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}
     >
-      {/* Toast Error Alert */}
-      {errorMessage && (
-        <div className="fixed top-4 right-4 z-50 bg-red-600 text-white px-4 py-2.5 rounded-xl shadow-2xl font-bold text-xs flex items-center gap-2 animate-bounce">
-          <span>⚠️</span> {errorMessage}
-        </div>
-      )}
+      <Notifications notices={notices} dismiss={dismiss} />
 
       {/* Screen 1: MAIN MENU (Maximized Visual Presentation) */}
       {view === 'MENU' && (
@@ -447,7 +505,7 @@ export default function App() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
                   Player Color
                 </label>
-                <div className="flex gap-2.5 justify-center">
+                <div className="flex flex-wrap gap-2.5 justify-center">
                   {PLAYER_COLORS.map((c) => (
                     <button
                       key={c}
@@ -482,7 +540,7 @@ export default function App() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  maxLength={4}
+                  maxLength={8}
                   value={joinRoomCode}
                   onChange={(e) => setJoinRoomCode(e.target.value.toUpperCase())}
                   placeholder="ROOM CODE"
@@ -532,145 +590,57 @@ export default function App() {
             onRemovePlayer={handleRemovePlayer}
             onStartGame={handleStartGame}
             onLeaveLobby={handleLeaveLobby}
+            onUpdateSettings={handleUpdateSettings}
           />
         </div>
       )}
 
       {/* Screen 3: IN GAME (Maximized Full-Viewport Grid) */}
       {view === 'GAME' && gameState && currentPlayer && (
-        <div className="h-full w-full flex flex-col overflow-hidden">
+        <div className="game-workspace h-full w-full flex flex-col overflow-hidden">
           {/* Top Sleek Header Bar */}
-          <header className="min-h-12 py-1 bg-slate-900/95 border-b border-slate-800 px-4 pl-16 sm:pl-4 md:px-6 flex items-center justify-between shrink-0 shadow-md backdrop-blur-md">
-            {/* Left: Brand & Room Tag */}
-            <div className="flex items-center gap-3">
-              <span className="text-xl">🎩</span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-black tracking-tight text-white">MONOPOLY</span>
-                <span className="text-slate-600">·</span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(gameState.roomId);
-                    setCopiedLink(true);
-                    playSound('click');
-                    setTimeout(() => setCopiedLink(false), 2000);
-                  }}
-                  className="cursor-pointer text-[11px] font-mono font-bold bg-slate-950 border border-slate-700 px-2 py-0.5 rounded text-amber-400 hover:bg-slate-800 transition-colors flex items-center gap-1"
-                  title="Click to copy room code"
-                >
-                  <span>Room:</span>
-                  <b>#{gameState.roomId}</b>
-                  <span className="text-[9px] text-slate-400">{copiedLink ? '✓' : '📋'}</span>
-                </button>
-              </div>
+          <header className="game-header" inert={showPurchase || isTradeModalOpen}>
+            <div className="game-brand">
+              <Crown size={18} className="text-amber-200 shrink-0" />
+              <span className="game-brand-name">MONOPOLY</span>
+              <button className="room-code" title="Einladungslink kopieren" onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/?room=${gameState.roomId}`).then(() => {
+                  setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000);
+                }).catch(() => triggerError('Raumcode: ' + gameState.roomId));
+              }}><span>#{gameState.roomId}</span>{copiedLink ? <Check size={12} /> : <Copy size={12} />}</button>
             </div>
-
-            {/* Center: Quick Turn Ticker */}
-            <div className="hidden md:flex items-center gap-2 text-xs">
-              <span className="text-slate-400">Current Turn:</span>
-              <span
-                className="font-black flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-950 border border-slate-800"
-                style={{ color: gameState.players[gameState.activePlayerIndex]?.color }}
-              >
-                <span>{gameState.players[gameState.activePlayerIndex]?.token}</span>
-                <span>{gameState.players[gameState.activePlayerIndex]?.name}</span>
-              </span>
-            </div>
-
-            {/* Right: Quick Controls & Cash Indicator */}
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => {
-                  playSound('click');
-                  setIsLeaderboardOpen(true);
-                }}
-                className="cursor-pointer text-xs bg-slate-950 hover:bg-slate-800 border border-amber-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1 text-amber-300 font-bold transition-colors"
-                title="View Cloud Leaderboard"
-              >
-                <span>🏆</span>
-                <span className="hidden lg:inline">Leaderboard</span>
-              </button>
-
-              <div className="text-xs bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg flex items-center gap-1.5">
-                <span className="text-slate-400">Your Cash:</span>
-                <span className="font-mono font-black text-emerald-400">
-                  ${currentPlayer.money}
-                </span>
+            <div className="header-turn"><span>Am Zug</span><strong style={{ color: gameState.players[gameState.activePlayerIndex]?.color }}>{gameState.players[gameState.activePlayerIndex]?.name}</strong></div>
+            <div className="game-header-controls">
+              <span className="header-cash"><span>Bargeld</span><strong>${currentPlayer.money.toLocaleString()}</strong></span>
+              <div className="view-switch" role="group" aria-label="Brettansicht">
+                {(['3D', '2D'] as const).map(mode => <button key={mode} aria-pressed={boardMode === mode} disabled={isRollingDice || isDiceSettling || isMoving} onClick={() => setBoardMode(mode)}>{mode}</button>)}
               </div>
-
-              {/* 3D / 2D View Mode Toggle */}
-              <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-700 text-xs shadow-inner">
-                <button
-                  onClick={() => {
-                    playSound('click');
-                    setBoardMode('3D');
-                  }}
-                  className={`cursor-pointer px-2.5 py-1 rounded-md font-black transition-all ${
-                    boardMode === '3D'
-                      ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  3D Arena
-                </button>
-                <button
-                  onClick={() => {
-                    playSound('click');
-                    setBoardMode('2D');
-                  }}
-                  className={`cursor-pointer px-2.5 py-1 rounded-md font-black transition-all ${
-                    boardMode === '2D'
-                      ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  2D Board
-                </button>
-              </div>
-
-              {/* Sound Toggle */}
-              <button
-                onClick={handleToggleSound}
-                className="cursor-pointer p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-xs"
-                title={soundMuted ? 'Unmute Sound' : 'Mute Sound'}
-              >
-                {soundMuted ? '🔇' : '🔊'}
-              </button>
-
-              {/* Fullscreen Toggle */}
-              <button
-                onClick={handleToggleFullscreen}
-                className="cursor-pointer p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-xs"
-                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-              >
-                {isFullscreen ? '⤦' : '⛶'}
-              </button>
-
-              {/* Leave Game */}
-              <button
-                onClick={() => {
-                  if (confirm('Leave current game?')) {
-                    handleLeaveLobby();
-                  }
-                }}
-                className="cursor-pointer text-xs font-bold text-slate-400 hover:text-rose-400 px-2 py-1 rounded hover:bg-slate-800 transition-colors"
-              >
-                Quit
-              </button>
+              <button className="sidebar-toggle header-icon-button" aria-label="Spieler und Chat öffnen" title="Spieler und Chat" aria-expanded={infoPanelOpen} aria-controls="game-info-panel" onClick={() => setInfoPanelOpen(open => !open)}><PanelRight size={17} />{pendingTradeCount > 0 && <span className="pending-trade-count" aria-label={`${pendingTradeCount} offene Handelsanfragen`}>{pendingTradeCount}</span>}</button>
+              <details className="game-more">
+                <summary className="header-icon-button" aria-label="Weitere Spieloptionen" title="Weitere Spieloptionen"><MoreHorizontal size={20} /></summary>
+                <div className="game-more-menu">
+                  <button onClick={event => { setIsLeaderboardOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }}><Trophy size={16} /> Rangliste</button>
+                  <button onClick={handleToggleSound}>{soundMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}{soundMuted ? 'Ton einschalten' : 'Ton ausschalten'}</button>
+                  <button onClick={handleToggleFullscreen}>{isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}{isFullscreen ? 'Vollbild beenden' : 'Vollbild'}</button>
+                  <button onClick={() => { if (confirm('Das aktuelle Spiel verlassen?')) handleLeaveLobby(); }}><LogOut size={16} /> Spiel verlassen</button>
+                </div>
+              </details>
             </div>
           </header>
 
           {/* Main Maximized Game View (Board Left, Sidebar Right) */}
-          <main className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 p-2 sm:p-3 overflow-hidden">
+          <main className="game-main" inert={showPurchase || isTradeModalOpen}>
             {/* Center / Board Stage */}
-            <section className="flex-1 min-h-0 flex flex-col items-center justify-between gap-2 overflow-hidden">
+            <section className="game-stage">
               {/* Maximized Board Container (3D or 2D) */}
-              <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+              <div className="game-board-region">
                 {boardMode === '3D' ? (
                   <ThreeBoardScene
+                    localPlayerId={currentPlayer.id}
                     gameState={gameState}
-                    canRoll={canRollNow}
                     isRolling={isRollingDice}
-                    onRollClick={handleRollDice}
+                    diceValues={rollValues}
+                    isDiceCloseup={isRollingDice || isDiceSettling}
                     onTileClick={(tile) => {
                       setInspectedTile(tile);
                       setIsPropertyModalOpen(true);
@@ -678,8 +648,10 @@ export default function App() {
                   />
                 ) : (
                   <Board
+                    localPlayerId={currentPlayer.id}
                     gameState={gameState}
                     canRoll={canRollNow}
+                    diceValues={rollValues}
                     isRolling={isRollingDice}
                     onRollClick={handleRollDice}
                     onTileClick={(tile) => {
@@ -691,12 +663,14 @@ export default function App() {
               </div>
 
               {/* Tactical Action Bar */}
-              <div className="w-full max-w-[calc(100vh-130px)] shrink-0">
+              <div inert={isRollingDice || isDiceSettling || isMoving} className={`game-actions-region ${isRollingDice || isDiceSettling || isMoving ? "opacity-50" : ""}`}>
                 <ActionBar
                   gameState={gameState}
                   currentPlayer={currentPlayer}
+                  activity={isRollingDice ? 'rolling' : isDiceSettling ? 'result' : isMoving ? 'moving' : null}
                   onRollDice={handleRollDice}
                   onBuyProperty={handleBuyProperty}
+                  onPreviewProperty={() => setDismissedPurchase(null)}
                   onDeclineProperty={handleDeclineProperty}
                   onPayJailFine={handlePayJailFine}
                   onUseJailCard={handleUseJailCard}
@@ -709,19 +683,30 @@ export default function App() {
             </section>
 
             {/* Right Maximized Sidebar (Scoreboard + Live Ticker) */}
-            <aside className="w-full lg:w-84 xl:w-96 flex flex-col gap-2.5 shrink-0 h-full overflow-hidden">
-              {/* Tycoon Leaderboard Card */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 shadow-xl backdrop-blur-xs shrink-0">
-                <PlayerScoreboard gameState={gameState} currentPlayer={currentPlayer} />
+            {infoPanelOpen && <button className="info-panel-scrim" aria-label="Spieler und Chat schließen" onClick={() => setInfoPanelOpen(false)} />}
+            <aside id="game-info-panel" aria-label="Spieler und Spielverlauf" className={`game-sidebar ${infoPanelOpen ? 'is-open' : ''}`} data-tab={infoTab} onKeyDown={event => { if (event.key === 'Escape') setInfoPanelOpen(false); }}>
+              <div className="info-panel-tabs">
+                <button aria-pressed={infoTab === 'players'} onClick={() => setInfoTab('players')}>Spieler</button>
+                <button aria-pressed={infoTab === 'log'} onClick={() => setInfoTab('log')}>Verlauf & Chat</button>
+                <button className="info-panel-close" aria-label="Spieler und Chat schließen" onClick={() => setInfoPanelOpen(false)}><X size={18} /></button>
               </div>
-
-              {/* Live Ticker & Chat Box */}
-              <GameLog logs={gameState.logs} onSendMessage={handleSendMessage} />
+              <div className="game-players-panel"><TradeRequests state={liveGameState || gameState} playerId={currentPlayer.id} respond={handleRespondTrade} cancel={handleCancelTrade} /><PlayerScoreboard gameState={liveGameState || gameState} currentPlayer={currentPlayer} /></div>
+              <div className="game-log-panel"><GameLog players={(liveGameState || gameState).players} currentPlayerId={currentPlayer.id} logs={(liveGameState || gameState).logs} onSendMessage={handleSendMessage} /></div>
             </aside>
           </main>
 
+          {showPurchase && purchaseTile && currentPlayer && <PropertyPurchase
+            deadline={gameState.turnDeadline}
+            key={purchaseKey}
+            tile={purchaseTile}
+            cash={gameState.players.find(player => player.id === currentPlayer.id)?.money ?? currentPlayer.money}
+            onClose={() => setDismissedPurchase(purchaseKey)}
+            onBuy={() => handleBuyProperty(purchaseTile.id)}
+            onDecline={handleDeclineProperty}
+          />}
+
           {/* Property Management Deed Modal */}
-          {isPropertyModalOpen && (
+          {isPropertyModalOpen && !isRollingDice && !isDiceSettling && !isMoving && (
             <PropertyModal
               gameState={gameState}
               currentPlayer={currentPlayer}
@@ -740,8 +725,8 @@ export default function App() {
           {/* Trade Agreement Modal */}
           {isTradeModalOpen && (
             <TradeModal
-              gameState={gameState}
-              currentPlayer={currentPlayer}
+              gameState={liveGameState || gameState}
+              currentPlayer={(liveGameState || gameState).players.find(p => p.id === currentPlayer.id) || currentPlayer}
               onClose={() => setIsTradeModalOpen(false)}
               onProposeTrade={handleProposeTrade}
               onRespondTrade={handleRespondTrade}
@@ -750,8 +735,8 @@ export default function App() {
           )}
 
           {/* Card Draw Modal (Chance / Community Chest) */}
-          {gameState.pendingCard && (
-            <CardModal
+          {gameState.pendingCard && !isTradeModalOpen && !isRollingDice && !isDiceSettling && !isMoving && (
+            <CardModal key={gameState.pendingCard.id}
               card={gameState.pendingCard}
               isMyTurn={
                 gameState.players[gameState.activePlayerIndex]?.id === currentPlayer.id
@@ -761,7 +746,7 @@ export default function App() {
           )}
 
           {/* Game Over Celebration Modal */}
-          {gameState.phase === 'GAME_OVER' && (
+          {gameState.phase === 'GAME_OVER' && !isTradeModalOpen && (
             <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
               <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl space-y-4">
                 <div className="text-6xl animate-bounce">🏆</div>
@@ -787,6 +772,7 @@ export default function App() {
 
       {/* Global Cloud Leaderboard Modal */}
       <LeaderboardModal
+        onError={triggerError}
         isOpen={isLeaderboardOpen}
         onClose={() => setIsLeaderboardOpen(false)}
       />

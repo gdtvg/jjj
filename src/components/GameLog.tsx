@@ -1,13 +1,44 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GameLogEntry } from '../types/game';
+import { playerReferences, mentionQuery } from '../utils/playerReferences';
+import { GameLogEntry, Player } from '../types/game';
 
 interface GameLogProps {
   logs: GameLogEntry[];
-  onSendMessage: (message: string) => void;
+  players: Player[];
+  currentPlayerId: string;
+  onSendMessage: (message: string) => Promise<boolean>;
 }
 
-export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
+export const GameLog: React.FC<GameLogProps> = ({ logs, players, currentPlayerId, onSendMessage }) => {
+  const [sending, setSending] = useState(false);
+  const sendLock = useRef(false);
   const [chatInput, setChatInput] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [optionIndex, setOptionIndex] = useState(0);
+  const query = mentionOpen ? mentionQuery(chatInput, caret) : null;
+  const candidates = query ? players.filter(p => p.name.toLocaleLowerCase().startsWith(query.query.toLocaleLowerCase())) : [];
+  const insertMention = (player: Player) => {
+    if (!query) return;
+    const text = `@${player.name} `;
+    const next = chatInput.slice(0, query.start) + text + chatInput.slice(query.end);
+    if (next.length > 150) return;
+    setChatInput(next); setMentionOpen(false);
+    const nextCaret = query.start + text.length; setCaret(nextCaret);
+    requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(nextCaret, nextCaret); });
+  };
+  const renderMessage = (entry: GameLogEntry) => {
+    const refs = playerReferences(entry.message, players, entry.type === 'chat');
+    const parts: React.ReactNode[] = []; let cursor = 0;
+    for (const ref of refs) {
+      parts.push(entry.message.slice(cursor, ref.start));
+      const player = players.find(p => p.id === ref.playerId);
+      parts.push(<mark key={ref.start} className="chat-player-reference" style={{ color: player?.color }}>{entry.message.slice(ref.start, ref.end)}</mark>);
+      cursor = ref.end;
+    }
+    parts.push(entry.message.slice(cursor)); return parts;
+  };
   const [filter, setFilter] = useState<'all' | 'chat' | 'events'>('all');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -17,11 +48,13 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
     }
   }, [logs]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-    onSendMessage(chatInput.trim());
-    setChatInput('');
+    if (!chatInput.trim() || sendLock.current) return;
+    const message = chatInput.trim();
+    sendLock.current = true; setSending(true);
+    try { if (await onSendMessage(message)) { setChatInput(''); setMentionOpen(false); setCaret(0); } }
+    finally { sendLock.current = false; setSending(false); }
   };
 
   const filteredLogs = logs.filter((entry) => {
@@ -31,7 +64,7 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
   });
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col flex-1 min-h-0 shadow-xl overflow-hidden">
+    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col flex-1 min-w-0 min-h-0 shadow-xl overflow-hidden">
       {/* Header with filter tabs */}
       <div className="p-2.5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between shrink-0">
         <span className="text-[11px] font-black uppercase tracking-wider text-slate-300">
@@ -111,10 +144,14 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
                 break;
             }
 
+            const highlighted = entry.type === 'chat' ? Boolean(entry.mentionIds?.length || playerReferences(entry.message, players, true).length) : (entry.participantIds?.length || 0) > 1;
+            const age = Math.max(0, Date.now() - entry.timestamp);
             return (
               <div
                 key={entry.id}
-                className={`py-1 px-1.5 rounded transition-colors ${
+                data-mentioned={entry.mentionIds?.includes(currentPlayerId)}
+                style={highlighted ? { animationDelay: `-${Math.min(age, 4500)}ms` } : undefined}
+                className={`${highlighted ? 'chat-highlight' : ''} py-1 px-1.5 rounded transition-colors ${
                   entry.type === 'chat' ? 'bg-slate-950/70 border border-slate-800/40' : 'hover:bg-slate-800/40'
                 }`}
               >
@@ -129,7 +166,7 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
                         {entry.playerName}:
                       </span>
                     )}
-                    <span className={textColor}>{entry.message}</span>
+                    <span className={`${textColor} chat-message-text`}>{renderMessage(entry)}</span>
                   </div>
                 </div>
               </div>
@@ -139,21 +176,34 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
       </div>
 
       {/* Chat input */}
-      <form onSubmit={handleSubmit} className="p-2 border-t border-slate-800 bg-slate-950/90 flex gap-2 shrink-0">
+      <form onSubmit={handleSubmit} className="chat-compose p-2 border-t border-slate-800 bg-slate-950/90 flex gap-2 shrink-0">
+        {query && candidates.length > 0 && <div id="chat-mention-list" role="listbox" aria-label="Spieler erwähnen" className="chat-mention-list">{candidates.map((player, index) => <button key={player.id} id={`mention-${index}`} type="button" role="option" aria-selected={index === optionIndex % candidates.length} onPointerDown={e => e.preventDefault()} onClick={() => insertMention(player)}><span style={{ color: player.color }}>{player.token}</span><span>{player.name}</span><small>@mention</small></button>)}</div>}
         <input
+          disabled={sending}
+          ref={inputRef}
+          role="combobox" aria-autocomplete="list" aria-expanded={Boolean(query && candidates.length)} aria-controls="chat-mention-list" aria-activedescendant={query && candidates.length ? `mention-${optionIndex % candidates.length}` : undefined}
+          aria-label="Chatnachricht"
+          onBlur={() => setMentionOpen(false)}
+          onSelect={e => { setCaret(e.currentTarget.selectionStart || 0); }}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { setMentionOpen(false); return; }
+            if (!query || !candidates.length) return;
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOptionIndex(i => (i + (e.key === 'ArrowDown' ? 1 : candidates.length - 1)) % candidates.length); }
+            if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(candidates[optionIndex % candidates.length]); }
+          }}
           type="text"
           value={chatInput}
-          onChange={(e) => setChatInput(e.target.value)}
-          placeholder="Send a chat message..."
+          onChange={e => { setChatInput(e.target.value); setCaret(e.target.selectionStart || 0); setMentionOpen(true); setOptionIndex(0); }}
+          placeholder="Nachricht … @Spieler erwähnen"
           maxLength={150}
-          className="flex-1 bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs focus:outline-hidden focus:border-amber-400"
+          className="flex-1 min-w-0 bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs focus:outline-hidden focus:border-amber-400"
         />
         <button
           type="submit"
-          disabled={!chatInput.trim()}
+          disabled={sending || !chatInput.trim()}
           className="cursor-pointer px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-xs disabled:opacity-40 transition-colors"
         >
-          Send
+          {sending ? '…' : 'Senden'}
         </button>
       </form>
     </div>
