@@ -3,12 +3,14 @@ import gsap from 'gsap';
 import confetti from 'canvas-confetti';
 import { BOARD_TILES, COLOR_HEX_MAP, COLOR_GROUPS } from '../data/monopolyBoard';
 import { BoardTile, GameState, Player } from '../types/game';
+import { movementPath, STEP_DURATION } from '../utils/gamePresentation';
 import { Dice } from './Dice';
 import { ASSETS } from '../assets/assetMap';
 import { playSound } from '../utils/sound';
 
 interface BoardProps {
   gameState: GameState;
+  localPlayerId: string;
   onTileClick?: (tile: BoardTile) => void;
   onRollClick?: () => void;
   canRoll?: boolean;
@@ -47,6 +49,7 @@ export const getTilePercentCenter = (tileId: number): { x: number; y: number } =
 
 export const Board: React.FC<BoardProps> = ({
   gameState,
+  localPlayerId,
   onTileClick,
   onRollClick,
   canRoll,
@@ -58,6 +61,9 @@ export const Board: React.FC<BoardProps> = ({
   const previousPositionsRef = useRef<Record<string, number>>({});
   const tokenElementsRef = useRef<Record<string, HTMLDivElement | null>>({});
 
+  const timelinesRef = useRef<Record<string, gsap.core.Timeline>>({});
+  useEffect(() => () => { Object.values(timelinesRef.current).forEach(t => t.kill()); }, []);
+
   // GSAP Step-by-Step Token Hop Animation
   useEffect(() => {
     gameState.players.forEach((player) => {
@@ -67,40 +73,21 @@ export const Board: React.FC<BoardProps> = ({
       if (prevPos !== undefined && prevPos !== targetPos) {
         const tokenEl = tokenElementsRef.current[player.id];
         if (tokenEl) {
-          // Calculate path around the 40 spaces
-          const steps: number[] = [];
-          let cur = prevPos;
-          while (cur !== targetPos) {
-            cur = (cur + 1) % 40;
-            steps.push(cur);
-            if (steps.length > 40) break; // guard
-          }
-
-          // Build GSAP hopping timeline
+          const steps = movementPath(prevPos, player).slice(1);
+          timelinesRef.current[player.id]?.kill();
+          const start = getTilePercentCenter(prevPos);
+          gsap.set(tokenEl, { x: 0, y: 0, xPercent: start.x, yPercent: start.y });
           const tl = gsap.timeline();
-          steps.forEach((stepTile, idx) => {
+          timelinesRef.current[player.id] = tl;
+          steps.forEach(stepTile => {
             const { x, y } = getTilePercentCenter(stepTile);
             tl.to(tokenEl, {
-              left: `${x}%`,
-              top: `${y}%`,
-              duration: 0.14,
-              ease: 'power1.out',
-              onStart: () => {
-                playSound('hop');
-              },
+              xPercent: x, yPercent: y, duration: STEP_DURATION / 1000,
+              ease: 'power1.inOut', onStart: () => playSound('hop'),
             });
-            // Little bounce hop in Z axis
-            tl.to(
-              tokenEl,
-              {
-                y: -18,
-                duration: 0.07,
-                yoyo: true,
-                repeat: 1,
-                ease: 'power2.out',
-              },
-              `-=${0.14}`
-            );
+            if (tokenEl.firstElementChild) tl.to(tokenEl.firstElementChild, {
+              y: -18, duration: STEP_DURATION / 2000, yoyo: true, repeat: 1, ease: 'power2.out',
+            }, '<');
           });
 
           // Check if passed GO
@@ -466,16 +453,13 @@ export const Board: React.FC<BoardProps> = ({
                       ref={(el) => {
                         tokenElementsRef.current[player.id] = el;
                       }}
-                      style={{
-                        left: `${x}%`,
-                        top: `${y}%`,
-                        transform: `translate(-50%, -50%) translate(${staggerOffset}px, 0px)`,
-                        borderColor: player.color,
-                        boxShadow: `0 0 14px ${player.color}90`,
-                      }}
-                      className="absolute w-8 h-8 rounded-full bg-white flex items-center justify-center text-lg border-2 shadow-2xl transition-shadow select-none"
+                      style={{ transform: `translate(${x}%, ${y}%)`, display: player.bankrupt ? 'none' : undefined }}
+                      className="absolute inset-0 w-full h-full select-none"
                     >
-                      <span>{player.token}</span>
+                      <div style={{ transform: `translate(-50%, -50%) translateX(${staggerOffset}px)`, borderColor: player.color }} className="absolute left-0 top-0 w-8 h-8 rounded-full bg-stone-50 flex items-center justify-center text-lg border-2 shadow-xl">
+                        {player.id === localPlayerId && <span className="own-position-arrow" aria-label="Deine Figur"><svg viewBox="0 0 24 32" width="24" height="32" aria-hidden="true"><path d="M8 1h8v15h7L12 31 1 16h7Z" fill="#edca80" stroke="#493818" strokeWidth="1.5" /></svg></span>}
+                        <span>{player.token}</span>
+                      </div>
                     </div>
                   );
                 })}

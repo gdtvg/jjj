@@ -4,10 +4,12 @@ import { BOARD_TILES } from '../data/monopolyBoard';
 import { BoardTile, GameState, PlayerToken } from '../types/game';
 import { getTileTexture, getCardDeckMaterials, getFeltTexture } from '../utils/tileTextureGenerator';
 import { ASSETS } from '../assets/assetMap';
+import { movementPath, STEP_DURATION } from '../utils/gamePresentation';
 import { playSound } from '../utils/sound';
 
 interface ThreeBoardSceneProps {
   gameState: GameState;
+  localPlayerId: string;
   onTileClick?: (tile: BoardTile) => void;
   canRoll?: boolean;
   onRollClick?: () => void;
@@ -16,6 +18,7 @@ interface ThreeBoardSceneProps {
 
 export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
   gameState,
+  localPlayerId,
   onTileClick,
   canRoll,
   onRollClick,
@@ -25,6 +28,9 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
   const [cameraMode, setCameraMode] = useState<'angled' | 'top' | 'focus'>('angled');
   const [hoveredTile, setHoveredTile] = useState<BoardTile | null>(null);
 
+  const liveRef = useRef({ rolling: isRolling, dice: gameState.dice, localPlayerId });
+  liveRef.current = { rolling: isRolling, dice: gameState.dice, localPlayerId };
+  const ownMarkerRef = useRef<THREE.Group | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -54,8 +60,6 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
   // Helper to map tile index 0-39 to 3D board coordinates (x, z)
   const getTile3DPosition = (tileId: number): { x: number; z: number; rotation: number } => {
     const half = 7.5;
-    const cornerSize = 1.9;
-    const step = 1.35;
 
     // Corners
     if (tileId === 0) return { x: half, z: half, rotation: -Math.PI / 4 }; // GO (facing camera and center)
@@ -66,24 +70,24 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     // Bottom side: 1 to 9 (from GO towards JAIL)
     // Rotation = 0 ensures all text and graphics are 100% upright to the camera!
     if (tileId > 0 && tileId < 10) {
-      const x = half - cornerSize - (tileId - 0.5) * step;
+      const x = 6 - (tileId - 1) * 1.5;
       return { x, z: half, rotation: 0 };
     }
 
     // Left side: 11 to 19 (from JAIL towards FREE PARKING)
     if (tileId > 10 && tileId < 20) {
-      const z = half - cornerSize - (tileId - 10 - 0.5) * step;
+      const z = 6 - (tileId - 11) * 1.5;
       return { x: -half, z, rotation: -Math.PI / 2 };
     }
 
     // Top side: 21 to 29 (from FREE PARKING towards GO TO JAIL)
     if (tileId > 20 && tileId < 30) {
-      const x = -half + cornerSize + (tileId - 20 - 0.5) * step;
+      const x = -6 + (tileId - 21) * 1.5;
       return { x, z: -half, rotation: 0 };
     }
 
     // Right side: 31 to 39 (from GO TO JAIL towards GO)
-    const z = -half + cornerSize + (tileId - 30 - 0.5) * step;
+    const z = -6 + (tileId - 31) * 1.5;
     return { x: half, z, rotation: Math.PI / 2 };
   };
 
@@ -471,6 +475,45 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     feltCenter.receiveShadow = true;
     boardGroup.add(feltCenter);
 
+    const brass = new THREE.MeshStandardMaterial({ color: 0xbda16c, metalness: 0.8, roughness: 0.32 });
+    const stone = new THREE.MeshStandardMaterial({ color: 0xd6cbb7, roughness: 0.65 });
+    const darkWood = new THREE.MeshStandardMaterial({ color: 0x30241c, roughness: 0.55 });
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(20.2, 0.22, 20.2), darkWood);
+    plinth.position.y = -0.88;
+    plinth.castShadow = true;
+    boardGroup.add(plinth);
+    [-1, 1].forEach(side => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(18.4, 0.045, 0.045), brass);
+      rail.position.set(0, 0.11, side * 9.12);
+      boardGroup.add(rail);
+      const vertical = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 18.4), brass);
+      vertical.position.set(side * 9.12, 0.11, 0);
+      boardGroup.add(vertical);
+    });
+    // A miniature Art Deco skyline at the far edge of the central felt.
+    [0.65, 1.05, 1.5, 2.0, 1.5, 1.05, 0.65].forEach((height, index) => {
+      const tower = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.52, height, 0.55), stone);
+      body.position.y = height / 2;
+      body.castShadow = true;
+      tower.add(body);
+      const crown = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.16, 0.38), brass);
+      crown.position.y = height + 0.08;
+      tower.add(crown);
+      for (let floor = 0.22; floor < height - 0.1; floor += 0.25) {
+        const windowBand = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.065, 0.015), darkWood);
+        windowBand.position.set(0, floor, 0.283);
+        tower.add(windowBand);
+      }
+      tower.position.set((index - 3) * 0.7, 0.08, -4.8);
+      boardGroup.add(tower);
+    });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(180, 180), new THREE.MeshStandardMaterial({ color: 0x171e1b, roughness: 0.95 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -1.05;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
     // Center Crest Emblem
     const crestTexture = new THREE.TextureLoader().load(ASSETS.luxuryCrest);
     crestTexture.colorSpace = THREE.SRGBColorSpace;
@@ -569,6 +612,18 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     hoverHighlightMeshRef.current = highlightMesh;
 
     scene.add(boardGroup);
+
+    const marker = new THREE.Group();
+    const markerMaterial = new THREE.MeshStandardMaterial({ color: 0xf4cd78, metalness: 0.65, roughness: 0.25, emissive: 0x3b2810, depthTest: false });
+    const pointer = new THREE.Mesh(new THREE.ConeGeometry(0.21, 0.42, 4), markerMaterial);
+    pointer.rotation.z = Math.PI;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.32, 12), markerMaterial);
+    stem.position.y = 0.34;
+    marker.add(pointer, stem);
+    marker.traverse(obj => { obj.renderOrder = 20; });
+    marker.visible = false;
+    scene.add(marker);
+    ownMarkerRef.current = marker;
 
     // 7. 3D Dice Group in Center
     const diceGroup = new THREE.Group();
@@ -692,6 +747,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     let lastTime = performance.now();
     const startTime = performance.now();
 
+    const diceNormals = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, -1, 0), new THREE.Vector3(-1, 0, 0)];
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
       const currentTime = performance.now();
@@ -705,58 +761,45 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         cameraRef.current.lookAt(cameraTargetRef.current);
       }
 
-      // Dice rolling animation
-      if (diceMeshesRef.current.length === 2) {
-        if (isRolling) {
-          diceMeshesRef.current[0].rotation.x += delta * 15;
-          diceMeshesRef.current[0].rotation.y += delta * 18;
-          diceMeshesRef.current[0].position.y = 0.55 + Math.abs(Math.sin(elapsed * 12)) * 0.8;
-
-          diceMeshesRef.current[1].rotation.x += delta * 14;
-          diceMeshesRef.current[1].rotation.z += delta * 19;
-          diceMeshesRef.current[1].position.y = 0.55 + Math.abs(Math.cos(elapsed * 12)) * 0.8;
+      // Read current props through a ref; the render loop lives for the whole scene.
+      diceMeshesRef.current.forEach((die, index) => {
+        const homeX = index === 0 ? -0.75 : 0.75;
+        if (liveRef.current.rolling) {
+          die.rotation.x += delta * (14 + index * 3);
+          die.rotation.z += delta * (18 - index * 2);
+          die.position.set(homeX + Math.sin(elapsed * 9 + index) * 0.6, 0.65 + Math.abs(Math.sin(elapsed * 11 + index)) * 1.6, Math.cos(elapsed * 8 + index) * 0.5);
         } else {
-          diceMeshesRef.current[0].position.y = THREE.MathUtils.lerp(
-            diceMeshesRef.current[0].position.y,
-            0.55,
-            0.15
-          );
-          diceMeshesRef.current[1].position.y = THREE.MathUtils.lerp(
-            diceMeshesRef.current[1].position.y,
-            0.55,
-            0.15
-          );
+          const normal = diceNormals[liveRef.current.dice[index] - 1] || diceNormals[0];
+          const target = new THREE.Quaternion().setFromUnitVectors(normal, new THREE.Vector3(0, 1, 0));
+          die.quaternion.slerp(target, 1 - Math.exp(-delta * 18));
+          die.position.lerp(new THREE.Vector3(homeX, 0.55, 0), 1 - Math.exp(-delta * 18));
         }
-      }
+      });
 
-      // Animate player token hopping sequences
+      // Each path includes the starting tile. Always finish at the exact destination.
       tokenAnimationRef.current.forEach((anim, playerId) => {
         const tokenGroup = tokensMapRef.current.get(playerId);
         if (!tokenGroup) return;
-
-        anim.stepProgress += delta * 6; // Speed of each hop
+        anim.stepProgress = Math.min(1, anim.stepProgress + delta * 1000 / STEP_DURATION);
+        const fromPos = getTile3DPosition(anim.path[anim.stepIndex]);
+        const toPos = getTile3DPosition(anim.path[anim.stepIndex + 1]);
+        tokenGroup.position.set(
+          THREE.MathUtils.lerp(fromPos.x, toPos.x, anim.stepProgress) + (tokenGroup.userData.offsetX || 0),
+          0.16 + Math.sin(anim.stepProgress * Math.PI) * 0.5,
+          THREE.MathUtils.lerp(fromPos.z, toPos.z, anim.stepProgress) + (tokenGroup.userData.offsetZ || 0)
+        );
         if (anim.stepProgress >= 1) {
+          playSound('hop');
           anim.stepProgress = 0;
           anim.stepIndex++;
-          playSound('hop');
-          if (anim.stepIndex >= anim.path.length) {
-            tokenAnimationRef.current.delete(playerId);
-            return;
-          }
+          if (anim.stepIndex >= anim.path.length - 1) tokenAnimationRef.current.delete(playerId);
         }
-
-        const fromTileId = anim.stepIndex === 0 ? anim.path[0] : anim.path[anim.stepIndex - 1];
-        const toTileId = anim.path[anim.stepIndex];
-
-        const fromPos = getTile3DPosition(fromTileId);
-        const toPos = getTile3DPosition(toTileId);
-
-        const curX = THREE.MathUtils.lerp(fromPos.x, toPos.x, anim.stepProgress);
-        const curZ = THREE.MathUtils.lerp(fromPos.z, toPos.z, anim.stepProgress);
-        const curY = 0.12 + Math.sin(anim.stepProgress * Math.PI) * 0.6; // parabolic bounce
-
-        tokenGroup.position.set(curX, curY, curZ);
       });
+      const ownToken = tokensMapRef.current.get(liveRef.current.localPlayerId);
+      if (ownMarkerRef.current) {
+        ownMarkerRef.current.visible = Boolean(ownToken?.visible);
+        if (ownToken) ownMarkerRef.current.position.set(ownToken.position.x, ownToken.position.y + 1.3 + Math.sin(elapsed * 3) * 0.12, ownToken.position.z);
+      }
 
       // Floating ring rotation
       tokensMapRef.current.forEach((group) => {
@@ -779,7 +822,18 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
       container.removeEventListener('wheel', handleWheel);
       window.removeEventListener('resize', handleResize);
+      scene.traverse(obj => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+          const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+          materials.forEach(material => material.dispose());
+        }
+      });
       renderer.dispose();
+      tokensMapRef.current.clear();
+      tokenAnimationRef.current.clear();
+      previousPositionsRef.current = {};
+      renderer.domElement.remove();
     };
   }, []);
 
@@ -799,18 +853,15 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         currentTokens.set(player.id, tokenGroup);
       }
 
+      const angle = idx * Math.PI * 2 / Math.max(1, gameState.players.length);
+      tokenGroup.userData.offsetX = Math.cos(angle) * 0.35;
+      tokenGroup.userData.offsetZ = Math.sin(angle) * 0.35;
+      tokenGroup.visible = !player.bankrupt;
       const prevPos = previousPositionsRef.current[player.id];
       const targetPos = player.position;
 
       if (prevPos !== undefined && prevPos !== targetPos) {
-        // Calculate stepping path
-        const path: number[] = [];
-        let curr = prevPos;
-        while (curr !== targetPos) {
-          curr = (curr + 1) % 40;
-          path.push(curr);
-          if (path.length > 40) break;
-        }
+        const path = movementPath(prevPos, player);
         tokenAnimationRef.current.set(player.id, {
           path,
           stepIndex: 0,
@@ -835,7 +886,15 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     scene.traverse((obj) => {
       if ((obj as any).isBuilding || (obj as any).isOwnerBadge) toRemove.push(obj);
     });
-    toRemove.forEach((obj) => scene.remove(obj));
+    toRemove.forEach(obj => {
+      scene.remove(obj);
+      obj.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (Array.isArray(child.material) ? child.material : [child.material]).forEach(material => material.dispose());
+        }
+      });
+    });
 
     Object.values(gameState.properties).forEach((prop) => {
       const { innerX, innerZ, outerX, outerZ, rotation } = getTileFeaturePositions(prop.tileId);
@@ -1028,6 +1087,9 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         </div>
       )}
 
+      <div className="absolute bottom-8 left-3 rounded-lg border border-amber-200/25 bg-stone-950/85 px-3 py-2 text-xs text-amber-100 pointer-events-none">
+        <span className="text-amber-300 mr-2" aria-hidden="true">↓</span>Deine Figur · {BOARD_TILES[gameState.players.find(p => p.id === localPlayerId)?.position ?? 0]?.name}
+      </div>
       {/* Quick Navigation Help Note */}
       <div className="absolute bottom-2 right-3 text-[10px] text-slate-400/80 bg-black/50 backdrop-blur-xs px-2.5 py-1 rounded-lg pointer-events-none border border-white/5">
         🖱️ Click & drag to rotate 3D view · Scroll to zoom · Click any tile to inspect

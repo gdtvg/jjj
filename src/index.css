@@ -1,1 +1,25 @@
 @import "tailwindcss";
+
+.own-position-arrow {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  margin-left: -12px;
+  filter: drop-shadow(0 3px 3px #241c16aa);
+  animation: position-bob 1.8s ease-in-out infinite;
+}
+@keyframes position-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.dice-tumbling { animation: dice-tumble 0.65s linear infinite; }
+.dice-tumbling:nth-child(2) { animation-delay: -0.23s; animation-direction: reverse; }
+@keyframes dice-tumble {
+  0% { transform: perspective(450px) translate3d(-12px, 3px, 0) rotateX(0deg) rotateZ(-14deg); }
+  25% { transform: perspective(450px) translate3d(0, -34px, 24px) rotateX(110deg) rotateZ(24deg); }
+  50% { transform: perspective(450px) translate3d(15px, -8px, 0) rotateX(190deg) rotateZ(110deg); }
+  75% { transform: perspective(450px) translate3d(0, -22px, 15px) rotateX(290deg) rotateZ(210deg); }
+  100% { transform: perspective(450px) translate3d(-12px, 3px, 0) rotateX(360deg) rotateZ(346deg); }
+}
+.event-card-overlay { animation: event-reveal 0.3s ease-out both; }
+@keyframes event-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .dice-tumbling, .own-position-arrow, .event-card-overlay { animation: none; }
+}

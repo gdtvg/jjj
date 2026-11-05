@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { GameClient } from './lib/gameClient';
 import confetti from 'canvas-confetti';
+import { Dice } from './components/Dice';
+import { hasNewRoll, movementDuration, ROLL_DURATION } from './utils/gamePresentation';
 import { Board } from './components/Board';
 import { ThreeBoardScene } from './components/ThreeBoardScene';
 import { ASSETS } from './assets/assetMap';
@@ -28,6 +30,8 @@ export default function App() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [soundMuted, setSoundMutedState] = useState(isSoundMuted());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
+  const [rollValues, setRollValues] = useState<[number, number]>([1, 1]);
   const [isRollingDice, setIsRollingDice] = useState(false);
   const [boardMode, setBoardMode] = useState<'3D' | '2D'>('3D');
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
@@ -47,6 +51,10 @@ export default function App() {
     const s = new GameClient();
     let gameStarted = false;
     let victoryShown = false;
+    let previousState: GameState | null = null;
+    let presentation = Promise.resolve();
+    let disposed = false;
+    const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     s.on('error', (message: string) => { setErrorMessage(message); setIsRollingDice(false); });
     s.on('lobby:joined', () => setView('LOBBY'));
 
@@ -63,20 +71,36 @@ export default function App() {
     });
 
     s.on('game:state', (state: GameState) => {
-      setGameState(state);
-      setIsRollingDice(false);
-      const me = state.players.find(p => p.id === s.id);
-      if (me) setCurrentPlayer(me);
-      if (state.phase !== 'GAME_OVER') victoryShown = false;
-      if (state.phase === 'GAME_OVER' && !victoryShown) {
-        victoryShown = true;
-        confetti({
-          particleCount: 150,
-          spread: 80,
-          origin: { y: 0.6 },
-        });
-        playSound('victory');
-      }
+      presentation = presentation.then(async () => {
+        if (disposed) return;
+        if (previousState?.roomId !== state.roomId) previousState = null;
+        const rolled = previousState && hasNewRoll(previousState, state);
+        const moveTime = previousState ? movementDuration(previousState, state) : 0;
+        if (rolled) {
+          setRollValues(state.dice);
+          setIsRollingDice(true);
+          playSound('roll');
+          await pause(ROLL_DURATION);
+          if (disposed) return;
+        }
+        setIsRollingDice(false);
+        setIsMoving(moveTime > 0);
+        setGameState(state);
+        const me = state.players.find(p => p.id === s.id);
+        if (me) setCurrentPlayer(me);
+        previousState = state;
+        if (moveTime) await pause(moveTime + 100);
+        if (disposed) return;
+        setIsMoving(false);
+        if (state.pendingCard) await pause(1800);
+        if (disposed) return;
+        if (state.phase !== 'GAME_OVER') victoryShown = false;
+        if (state.phase === 'GAME_OVER' && !victoryShown) {
+          victoryShown = true;
+          confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+          playSound('victory');
+        }
+      });
     });
 
     s.on('lobby:kicked', () => {
@@ -95,6 +119,7 @@ export default function App() {
     document.addEventListener('fullscreenchange', handleFsChange);
 
     return () => {
+      disposed = true;
       s.disconnect();
       document.removeEventListener('fullscreenchange', handleFsChange);
     };
@@ -251,7 +276,7 @@ export default function App() {
 
   // In-Game Socket Operations
   const handleRollDice = () => {
-    if (!socket || !gameState) return;
+    if (!socket || !gameState || isRollingDice || isMoving) return;
     setIsRollingDice(true);
     socket.emit('game:roll', { roomId: gameState.roomId });
   };
@@ -337,7 +362,7 @@ export default function App() {
   };
 
   const canRollNow = Boolean(
-    gameState?.phase === 'ROLL' &&
+    !isRollingDice && !isMoving && gameState?.phase === 'ROLL' &&
       currentPlayer &&
       gameState.players[gameState.activePlayerIndex]?.id === currentPlayer.id
   );
@@ -651,6 +676,7 @@ export default function App() {
               <div className="flex-1 min-h-0 w-full flex items-center justify-center">
                 {boardMode === '3D' ? (
                   <ThreeBoardScene
+                    localPlayerId={currentPlayer.id}
                     gameState={gameState}
                     canRoll={canRollNow}
                     isRolling={isRollingDice}
@@ -662,6 +688,7 @@ export default function App() {
                   />
                 ) : (
                   <Board
+                    localPlayerId={currentPlayer.id}
                     gameState={gameState}
                     canRoll={canRollNow}
                     isRolling={isRollingDice}
@@ -675,7 +702,7 @@ export default function App() {
               </div>
 
               {/* Tactical Action Bar */}
-              <div className="w-full max-w-[calc(100vh-130px)] shrink-0">
+              <div inert={isRollingDice || isMoving} className={`w-full max-w-[calc(100vh-130px)] shrink-0 ${isRollingDice || isMoving ? "opacity-50" : ""}`}>
                 <ActionBar
                   gameState={gameState}
                   currentPlayer={currentPlayer}
@@ -704,8 +731,18 @@ export default function App() {
             </aside>
           </main>
 
+          {isRollingDice && (
+            <div className="dice-stage fixed inset-0 z-40 pointer-events-none flex items-center justify-center" role="status" aria-live="polite">
+              <div className="rounded-3xl border border-amber-300/30 bg-stone-950/90 px-10 py-7 shadow-2xl backdrop-blur-md text-center">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-amber-200 mb-6">Die Würfel fallen</p>
+                <div className="flex gap-6 justify-center"><Dice value={rollValues[0]} size="lg" rolling /><Dice value={rollValues[1]} size="lg" rolling /></div>
+              </div>
+            </div>
+          )}
+          {isMoving && <div role="status" className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 bg-stone-950/90 border border-amber-300/30 rounded-full px-5 py-2 text-xs text-amber-100 pointer-events-none">Die Spielfigur zieht …</div>}
+
           {/* Property Management Deed Modal */}
-          {isPropertyModalOpen && (
+          {isPropertyModalOpen && !isRollingDice && !isMoving && (
             <PropertyModal
               gameState={gameState}
               currentPlayer={currentPlayer}
@@ -722,7 +759,7 @@ export default function App() {
           )}
 
           {/* Trade Agreement Modal */}
-          {isTradeModalOpen && (
+          {isTradeModalOpen && !isRollingDice && !isMoving && (
             <TradeModal
               gameState={gameState}
               currentPlayer={currentPlayer}
@@ -734,8 +771,8 @@ export default function App() {
           )}
 
           {/* Card Draw Modal (Chance / Community Chest) */}
-          {gameState.pendingCard && (
-            <CardModal
+          {gameState.pendingCard && !isRollingDice && !isMoving && (
+            <CardModal key={gameState.pendingCard.id}
               card={gameState.pendingCard}
               isMyTurn={
                 gameState.players[gameState.activePlayerIndex]?.id === currentPlayer.id
