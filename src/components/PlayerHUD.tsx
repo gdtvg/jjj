@@ -1,4 +1,5 @@
 import React from 'react';
+import { TurnCountdown } from './TurnCountdown';
 import { Landmark, Handshake, Dices, Banknote, ArrowRight, Box } from 'lucide-react';
 import { BOARD_TILES } from '../data/monopolyBoard';
 import { GameState, Player } from '../types/game';
@@ -185,6 +186,8 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           </div>
         </div>
       </div>
+
+      <TurnCountdown deadline={gameState.turnDeadline} phase={gameState.phase} />
 
       {/* Right: Tactical Control Buttons */}
       <div className="flex flex-wrap items-center gap-2">

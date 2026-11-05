@@ -2,16 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Banknote, X } from 'lucide-react';
 import type { BoardTile } from '../types/game';
 import { PROPERTY_COLORS } from '../utils/propertyModel';
+import { TurnCountdown } from './TurnCountdown';
 import { PropertyModel } from './PropertyModel';
 
 interface Props {
   tile: BoardTile;
   cash: number;
+  deadline?: number;
   onClose: () => void;
   onBuy: () => Promise<boolean>;
   onDecline: () => Promise<boolean>;
 }
-export function PropertyPurchase({ tile, cash, onClose, onBuy, onDecline }: Props) {
+export function PropertyPurchase({ tile, cash, deadline, onClose, onBuy, onDecline }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
@@ -40,6 +42,7 @@ export function PropertyPurchase({ tile, cash, onClose, onBuy, onDecline }: Prop
   }}>
     <div ref={dialogRef} className="purchase-dialog" role="dialog" aria-modal="true" aria-labelledby="purchase-title" aria-describedby="purchase-description" tabIndex={-1} style={{ '--property-color': PROPERTY_COLORS[tile.color || 'utility'] } as React.CSSProperties}>
       <header className="purchase-heading"><div><span className="purchase-eyebrow">Zum Verkauf</span><h2 id="purchase-title">{tile.name}</h2></div><button aria-label="Vorschau schließen" disabled={pending} onClick={onClose}><X size={19} /></button></header>
+      <div className="purchase-countdown"><TurnCountdown deadline={deadline} phase="ACTION" /></div>
       <PropertyModel tile={tile} />
       <div className="purchase-details">
         <p id="purchase-description">{tile.type === 'street' ? 'Erweitere deinen Besitz mit diesem Grundstück.' : tile.type === 'railroad' ? 'Sichere dir diesen Bahnhof für dein Streckennetz.' : 'Ergänze dein Portfolio um dieses Versorgungswerk.'}</p>

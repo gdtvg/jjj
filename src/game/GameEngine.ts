@@ -56,6 +56,7 @@ export class GameEngine {
       freeParkingPot: 100,
     };
 
+    this.syncTurnClock();
     this.addLog('Game started! Initial cash: $1500. Good luck!', 'system');
   }
 
@@ -899,6 +900,50 @@ export class GameEngine {
     }
 
     return { success: true };
+  }
+
+  /** Persisted deadlines are checked under the room's database lock. */
+  public syncTurnClock(now = Date.now()): boolean {
+    const player = this.getActivePlayer();
+    if (!player || player.isBot || this.state.phase === 'GAME_OVER') {
+      const changed = this.state.turnDeadline !== undefined;
+      delete this.state.turnDeadline;
+      delete this.state.turnClockKey;
+      return changed;
+    }
+    const key = `${player.id}:${this.state.phase}:${this.state.doublesCount}:${this.state.hasRolled}`;
+    if (this.state.turnClockKey === key && this.state.turnDeadline !== undefined) return false;
+    this.state.turnClockKey = key;
+    this.state.turnDeadline = now + 25_000;
+    return true;
+  }
+
+  public timeoutStep(now = Date.now()): boolean {
+    const reset = this.syncTurnClock(now);
+    if (!this.state.turnDeadline || now < this.state.turnDeadline) return reset;
+    const player = this.getActivePlayer()!;
+    this.addLog(`${player.name}: Zeitlimit erreicht – die Aktion wird automatisch ausgeführt.`, 'system', player);
+    // Settle debt using the same legal actions available to players, then eliminate
+    // only when no remaining asset can cover it. Never purchase on their behalf.
+    for (let step = 0; player.money < 0 && step < 180; step++) {
+      const owned = Object.values(this.state.properties).filter(p => p.ownerId === player.id);
+      const built = owned.filter(p => p.houses > 0).sort((a, b) => b.houses - a.houses);
+      if (built.some(p => this.sellHouse(player.id, p.tileId).success)) continue;
+      if (owned.some(p => !p.mortgaged && this.mortgageProperty(player.id, p.tileId).success)) continue;
+      this.declareBankruptcy(player.id);
+      this.syncTurnClock(now);
+      return true;
+    }
+    if (this.state.phase === 'ROLL') this.rollDice(player.id);
+    else if (this.state.phase === 'ACTION') {
+      this.declineProperty(player.id);
+      this.endTurn(player.id);
+    } else if (this.state.phase === 'RESOLVING_CARD') {
+      this.resolveCard(player.id);
+      if (this.getState().phase === 'END_TURN') this.endTurn(player.id);
+    } else if (this.state.phase === 'END_TURN') this.endTurn(player.id);
+    this.syncTurnClock(now);
+    return true;
   }
 
   // Bot AI decision maker

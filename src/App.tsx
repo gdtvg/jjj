@@ -665,6 +665,7 @@ export default function App() {
           </main>
 
           {showPurchase && purchaseTile && currentPlayer && <PropertyPurchase
+            deadline={gameState.turnDeadline}
             key={purchaseKey}
             tile={purchaseTile}
             cash={gameState.players.find(player => player.id === currentPlayer.id)?.money ?? currentPlayer.money}

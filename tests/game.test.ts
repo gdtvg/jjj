@@ -64,3 +64,69 @@ test('bots can complete repeated turns across restored server requests', (contex
   }
   assert.ok(sawPurchase);
 });
+
+test('human deadline survives restore and rolls exactly once after 25 seconds', context => {
+  context.mock.method(Math, 'random', () => 0.3);
+  const engine = game();
+  const deadline = engine.getState().turnDeadline!;
+  const restored = GameEngine.restore(JSON.parse(JSON.stringify(engine.snapshot())));
+  assert.equal(restored.timeoutStep(deadline - 1), false);
+  assert.equal(restored.getState().hasRolled, false);
+  assert.equal(restored.timeoutStep(deadline), true);
+  assert.equal(restored.getState().hasRolled, true);
+  const rollCount = restored.getState().logs.filter(log => log.type === 'roll').length;
+  assert.equal(restored.timeoutStep(deadline + 1), false);
+  assert.equal(restored.getState().logs.filter(log => log.type === 'roll').length, rollCount);
+  assert.equal(restored.getState().turnDeadline, deadline + 25_000);
+});
+
+test('expired purchase declines without spending money and advances the turn', () => {
+  const engine = game();
+  const state = engine.getState();
+  state.players[0].position = 1;
+  state.phase = 'ACTION';
+  engine.syncTurnClock(1000);
+  engine.timeoutStep(26_000);
+  assert.equal(state.properties[1].ownerId, null);
+  assert.equal(state.players[0].money, 1500);
+  assert.equal(engine.getActivePlayer()?.id, 'b');
+  assert.equal(state.turnDeadline, 51_000);
+});
+
+test('manual phase changes get a fresh clock but repeated polls and chats do not', () => {
+  const engine = game();
+  const initial = engine.getState().turnDeadline!;
+  engine.addLog('Hello', 'chat');
+  assert.equal(engine.syncTurnClock(initial - 500), false);
+  engine.getState().phase = 'END_TURN';
+  assert.equal(engine.syncTurnClock(initial - 500), true);
+  assert.equal(engine.getState().turnDeadline, initial + 24_500);
+  engine.timeoutStep(initial + 24_500);
+  assert.equal(engine.getActivePlayer()?.id, 'b');
+});
+
+test('expired debt liquidates legal assets and cannot stall the next player', () => {
+  const engine = game();
+  engine.getState().phase = 'END_TURN';
+  engine.getState().players[0].money = -5000;
+  engine.getState().properties[1].ownerId = 'a';
+  engine.syncTurnClock(1000);
+  engine.timeoutStep(26_000);
+  assert.equal(engine.getState().players[0].bankrupt, true);
+  assert.equal(engine.getState().phase, 'GAME_OVER');
+  assert.equal(engine.getState().turnDeadline, undefined);
+});
+
+test('expired doubles keep the extra roll and start a fresh countdown', () => {
+  const engine = game();
+  const state = engine.getState();
+  state.phase = 'END_TURN';
+  state.hasRolled = true;
+  state.dice = [3, 3];
+  state.doublesCount = 1;
+  engine.syncTurnClock(1000);
+  engine.timeoutStep(26_000);
+  assert.equal(engine.getActivePlayer()?.id, 'a');
+  assert.equal(state.phase, 'ROLL');
+  assert.equal(state.turnDeadline, 51_000);
+});

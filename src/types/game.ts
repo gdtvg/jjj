@@ -119,6 +119,8 @@ export interface GameLogEntry {
 }
 
 export interface GameState {
+  turnDeadline?: number;
+  turnClockKey?: string;
   roomId: string;
   phase: GamePhase;
   players: Player[];

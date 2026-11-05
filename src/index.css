@@ -189,3 +189,17 @@ button, summary, input { -webkit-tap-highlight-color: transparent; }
 .trade-model-panel .purchase-model-area { height: clamp(160px, 27dvh, 240px); }
 .trade-model-panel > p { padding: 10px 16px; border-top: 1px solid #bfa26930; font-size: 11px; color: #c3cdbf; }
 .trade-inline-preview { display: inline-flex; align-items: center; gap: 4px; margin: 3px 5px 3px 0; padding: 4px 6px; border: 1px solid #bfa26950; border-radius: 5px; color: #ddc795; cursor: pointer; }
+
+.turn-countdown { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; min-width: 145px; color: #d5c59e; font-size: 10px; }
+.turn-countdown strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.turn-countdown progress { grid-column: 1 / -1; width: 100%; height: 4px; accent-color: #c5aa70; border: none; border-radius: 4px; overflow: hidden; }
+.turn-countdown[data-urgent="true"] { color: #f4ad89; }
+.turn-countdown[data-urgent="true"] progress { accent-color: #df946c; }
+.property-view-controls { position: absolute; right: 12px; top: 10px; display: flex; gap: 4px; padding: 4px; border: 1px solid #bfa26945; background: #18271ee8; border-radius: 10px; }
+.property-view-controls button { display: grid; place-items: center; width: 32px; height: 32px; color: #e0d0ad; border-radius: 6px; cursor: pointer; }
+.property-view-controls button:hover { background: #bfa26925; }
+.property-view-controls button:focus-visible { outline: 2px solid #c5aa70; }
+.purchase-dialog .purchase-model-area { height: clamp(180px, 38dvh, 340px); }
+@media (max-height: 600px) { .purchase-dialog .purchase-model-area { height: 145px; } }
+
+.purchase-countdown { padding: 8px 22px; flex-shrink: 0; border-bottom: 1px solid #c8b58b25; }

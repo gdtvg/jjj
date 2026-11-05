@@ -113,7 +113,9 @@ export default async (req: Request) => {
       } else if (!['room:poll', 'lobby:join', 'lobby:ready'].includes(event)) throw new Error('Unknown action');
       // One step per poll keeps bots progressing without a background server or timers.
       if (engine && engine.getState().phase !== 'GAME_OVER') {
+        if (engine.timeoutStep()) changed = true;
         if (engine.botStep()) changed = true;
+        if (engine.syncTurnClock()) changed = true;
         const trade = engine.getState().activeTrade;
         if (trade && engine.getState().players.find(p => p.id === trade.toPlayerId)?.isBot) {
           engine.respondTrade(trade.id, trade.toPlayerId, false);

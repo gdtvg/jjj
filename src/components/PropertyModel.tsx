@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { RotateCw } from 'lucide-react';
+import { RotateCw, Plus, Minus, ScanLine } from 'lucide-react';
 import type { BoardTile, PropertyState } from '../types/game';
 import { createPropertyModel } from '../utils/propertyModel';
 
 export function PropertyModel({ tile, property }: { tile: BoardTile; property?: PropertyState }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<(action: string) => void>(() => {});
   const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {
     const host = hostRef.current;
@@ -31,16 +32,23 @@ export function PropertyModel({ tile, property }: { tile: BoardTile; property?: 
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     host.appendChild(renderer.domElement);
+    let zoom = 1, topView = false;
     const resize = () => {
       const width = Math.max(1, host.clientWidth), height = Math.max(1, host.clientHeight);
       camera.aspect = width / height;
       const framing = Math.max(1, 0.95 / camera.aspect);
-      camera.position.set(1.9 * framing, 3.4 * framing, 3.2 * framing); camera.lookAt(0, 0.05, 0);
+      camera.position.set(0, (topView ? 3.5 : 3.2) * framing / zoom, (topView ? 0.01 : 1.8) * framing / zoom); camera.lookAt(0, 0.05, 0);
       camera.updateProjectionMatrix(); renderer.setSize(width, height);
     };
+    controlsRef.current = action => {
+      if (action === 'in') zoom = Math.min(1.4, zoom + 0.15);
+      if (action === 'out') zoom = Math.max(0.7, zoom - 0.15);
+      if (action === 'top') topView = !topView;
+      if (action === 'reset') { zoom = 1; topView = false; model.rotation.y = -0.35; }
+      resize();
+    };
     const observer = new ResizeObserver(resize); observer.observe(host); resize();
-    let dragging = false, lastX = 0, frame = 0, lastTime = performance.now();
-    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let dragging = false, lastX = 0, frame = 0;
     const down = (event: PointerEvent) => { dragging = true; lastX = event.clientX; host.setPointerCapture(event.pointerId); };
     const move = (event: PointerEvent) => { if (dragging) { model.rotation.y += (event.clientX - lastX) * 0.012; lastX = event.clientX; } };
     const up = () => { dragging = false; };
@@ -48,14 +56,15 @@ export function PropertyModel({ tile, property }: { tile: BoardTile; property?: 
     host.addEventListener('pointerdown', down); host.addEventListener('pointermove', move);
     host.addEventListener('pointerup', up); host.addEventListener('pointercancel', up);
     renderer.domElement.addEventListener('webglcontextlost', lost);
-    const animate = (now: number) => {
+    const animate = () => {
       frame = requestAnimationFrame(animate);
-      const delta = Math.min((now - lastTime) / 1000, 0.05); lastTime = now;
-      if (!dragging && !reducedMotion) model.rotation.y += delta * 0.12;
+
+
       if (!document.hidden) renderer.render(scene, camera);
     };
     frame = requestAnimationFrame(animate);
     return () => {
+      controlsRef.current = () => {};
       cancelAnimationFrame(frame); observer.disconnect();
       host.removeEventListener('pointerdown', down); host.removeEventListener('pointermove', move);
       host.removeEventListener('pointerup', up); host.removeEventListener('pointercancel', up);
@@ -66,7 +75,13 @@ export function PropertyModel({ tile, property }: { tile: BoardTile; property?: 
     };
   }, [tile.id, property?.houses]);
   return <div className="purchase-model-area">
-    <div ref={hostRef} role="img" aria-label={`Drehbares 3D-Modell: ${tile.name}`} className="purchase-model-canvas" />
+    <div ref={hostRef} role="img" tabIndex={0} onKeyDown={event => { if (event.key === '+' || event.key === '-') { event.preventDefault(); controlsRef.current(event.key === '+' ? 'in' : 'out'); } }} aria-label={`Drehbares 3D-Modell: ${tile.name}`} className="purchase-model-canvas" />
+    {!unavailable && <div className="property-view-controls" aria-label="3D-Ansicht steuern">
+      <button type="button" aria-label="Vergrößern" onClick={() => controlsRef.current('in')}><Plus size={16} /></button>
+      <button type="button" aria-label="Verkleinern" onClick={() => controlsRef.current('out')}><Minus size={16} /></button>
+      <button type="button" aria-label="Draufsicht umschalten" onClick={() => controlsRef.current('top')}><ScanLine size={16} /></button>
+      <button type="button" aria-label="Ansicht zurücksetzen" onClick={() => controlsRef.current('reset')}><RotateCw size={16} /></button>
+    </div>}
     {unavailable ? <p className="purchase-model-note">Die 3D-Vorschau ist auf diesem Gerät nicht verfügbar. Die Grundstücksdetails bleiben verfügbar.</p> : <span className="purchase-model-hint"><RotateCw size={13} /> Ziehen zum Drehen · Originales Brettfeld</span>}
   </div>;
 }
