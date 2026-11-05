@@ -138,3 +138,34 @@ button, summary, input { -webkit-tap-highlight-color: transparent; }
   .board-toolbar button span { display: none; }
   .board-toolbar button { padding: 9px 12px; }
 }
+
+.purchase-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 12px; background: #0b1412bf; backdrop-filter: blur(7px); }
+.purchase-dialog { width: min(100%, 560px); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; border: 1px solid #c8b58b50; border-radius: 20px; background: #1c2823; color: #e9ece2; box-shadow: 0 24px 80px #0b141280; outline: none; }
+.game-workspace .purchase-heading { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px 14px; background: transparent; border-bottom: 1px solid #c8b58b25; }
+.purchase-heading h2 { margin-top: 5px; font: 500 clamp(21px, 4vw, 28px)/1.15 Georgia, serif; overflow-wrap: anywhere; }
+.purchase-eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #c9b584; }
+.purchase-eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 2px; background: var(--property-color); }
+.purchase-heading button { padding: 8px; border-radius: 8px; }
+.purchase-model-area { position: relative; flex-shrink: 0; height: clamp(150px, 32dvh, 300px); background: radial-gradient(ellipse at 50% 70%, #47634c55, transparent 65%); }
+.purchase-model-canvas { width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.purchase-model-canvas:active { cursor: grabbing; }
+.purchase-model-hint { position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 10px; color: #a3b6a7; pointer-events: none; }
+.purchase-model-note { position: absolute; inset: 25%; text-align: center; color: #c6cfbf; font-size: 12px; }
+.purchase-details { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 15px 22px 18px; border-top: 1px solid #c8b58b18; font-size: 12px; color: #b5c2b6; }
+.purchase-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.purchase-facts dt { font-size: 10px; color: #99ad9e; margin-bottom: 5px; }
+.purchase-facts dd { font: 600 17px/1.4 monospace; color: #e5d4ac; overflow-wrap: anywhere; }
+.purchase-facts > div:last-child dd { font-size: 14px; color: #c6dfc8; }
+.purchase-rent { margin-top: 14px; font-size: 11px; line-height: 1.6; }
+.purchase-error { margin-top: 10px; color: #efb4a4; font-size: 11px; }
+.purchase-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; border-top: 1px solid #c8b58b25; background: #17221d; flex-shrink: 0; }
+.purchase-actions button { padding: 11px 16px; min-height: 40px; border: 1px solid #c8b58b35; border-radius: 9px; font-size: 12px; cursor: pointer; }
+.purchase-actions .purchase-buy { display: flex; align-items: center; justify-content: center; gap: 8px; background: #d5bb83; color: #222b23; font-weight: 650; }
+.purchase-actions button:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 420px), (max-height: 520px) {
+  .game-workspace .purchase-heading { padding: 12px 16px; }
+  .purchase-details { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px; }
+  .purchase-facts { gap: 8px; margin-top: 12px; }
+  .purchase-actions { padding: 12px 16px; }
+  .purchase-actions button { flex: 1; padding-inline: 10px; }
+}

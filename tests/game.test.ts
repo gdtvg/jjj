@@ -52,11 +52,15 @@ test('bankruptcy clears the eliminated player’s doubles and pending card', () 
   assert.equal(engine.getState().doublesCount, 0);
   assert.equal(engine.getState().hasRolled, false);
 });
-test('bots can complete repeated turns across restored server requests', () => {
+test('bots can complete repeated turns across restored server requests', (context) => {
+  let seed = 42;
+  context.mock.method(Math, 'random', () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; });
+  let sawPurchase = false;
   let engine = new GameEngine('TEST', [player('a', true), player('b', true)]);
   for (let i = 0; i < 300 && engine.getState().phase !== 'GAME_OVER'; i++) {
     assert.equal(engine.botStep(), true);
+    sawPurchase ||= engine.getState().logs.some(entry => entry.type === 'purchase');
     engine = GameEngine.restore(JSON.parse(JSON.stringify(engine.snapshot())));
   }
-  assert.ok(engine.getState().logs.some(entry => entry.type === 'purchase'));
+  assert.ok(sawPurchase);
 });

@@ -8,6 +8,7 @@ import { ThreeBoardScene } from './components/ThreeBoardScene';
 import { ASSETS } from './assets/assetMap';
 import { Lobby } from './components/Lobby';
 import { PlayerScoreboard, ActionBar } from './components/PlayerHUD';
+import { PropertyPurchase } from './components/PropertyPurchase';
 import { PropertyModal } from './components/PropertyModal';
 import { TradeModal } from './components/TradeModal';
 import { CardModal } from './components/CardModal';
@@ -45,6 +46,7 @@ export default function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
 
   // Modals
+  const [dismissedPurchase, setDismissedPurchase] = useState<string | null>(null);
   const [inspectedTile, setInspectedTile] = useState<BoardTile | null>(null);
   const [isPropertyModalOpen, setIsPropertyModalOpen] = useState(false);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
@@ -292,14 +294,14 @@ export default function App() {
     socket.emit('game:roll', { roomId: gameState.roomId });
   };
 
-  const handleBuyProperty = (tileId: number) => {
-    if (!socket || !gameState) return;
-    socket.emit('game:buy', { roomId: gameState.roomId, tileId });
+  const handleBuyProperty = (tileId: number): Promise<boolean> => {
+    if (!socket || !gameState) return Promise.resolve(false);
+    return new Promise(resolve => socket.emit('game:buy', { roomId: gameState.roomId, tileId }, (result: any) => resolve(Boolean(result.success))));
   };
 
-  const handleDeclineProperty = () => {
-    if (!socket || !gameState) return;
-    socket.emit('game:decline', { roomId: gameState.roomId });
+  const handleDeclineProperty = (): Promise<boolean> => {
+    if (!socket || !gameState) return Promise.resolve(false);
+    return new Promise(resolve => socket.emit('game:decline', { roomId: gameState.roomId }, (result: any) => resolve(Boolean(result.success))));
   };
 
   const handlePayJailFine = () => {
@@ -377,6 +379,12 @@ export default function App() {
       currentPlayer &&
       gameState.players[gameState.activePlayerIndex]?.id === currentPlayer.id
   );
+
+  const activeBuyer = gameState?.players[gameState.activePlayerIndex];
+  const purchaseTile = gameState?.phase === 'ACTION' && activeBuyer && activeBuyer.id === currentPlayer?.id && !activeBuyer?.bankrupt
+    && !gameState.properties[activeBuyer.position]?.ownerId ? BOARD_TILES[activeBuyer.position] : null;
+  const purchaseKey = purchaseTile && gameState ? `${gameState.roomId}:${purchaseTile.id}:${gameState.logs.filter(log => log.type === 'roll').at(-1)?.id}` : null;
+  const showPurchase = Boolean(purchaseTile && purchaseKey !== dismissedPurchase && !isRollingDice && !isDiceSettling && !isMoving && !isPropertyModalOpen && !isTradeModalOpen && !isLeaderboardOpen);
 
   return (
     <div
@@ -560,7 +568,7 @@ export default function App() {
       {view === 'GAME' && gameState && currentPlayer && (
         <div className="game-workspace h-full w-full flex flex-col overflow-hidden">
           {/* Top Sleek Header Bar */}
-          <header className="game-header">
+          <header className="game-header" inert={showPurchase}>
             <div className="game-brand">
               <Crown size={18} className="text-amber-200 shrink-0" />
               <span className="game-brand-name">MONOPOLY</span>
@@ -590,7 +598,7 @@ export default function App() {
           </header>
 
           {/* Main Maximized Game View (Board Left, Sidebar Right) */}
-          <main className="game-main">
+          <main className="game-main" inert={showPurchase}>
             {/* Center / Board Stage */}
             <section className="game-stage">
               {/* Maximized Board Container (3D or 2D) */}
@@ -631,6 +639,7 @@ export default function App() {
                   activity={isRollingDice ? 'rolling' : isDiceSettling ? 'result' : isMoving ? 'moving' : null}
                   onRollDice={handleRollDice}
                   onBuyProperty={handleBuyProperty}
+                  onPreviewProperty={() => setDismissedPurchase(null)}
                   onDeclineProperty={handleDeclineProperty}
                   onPayJailFine={handlePayJailFine}
                   onUseJailCard={handleUseJailCard}
@@ -654,6 +663,15 @@ export default function App() {
               <div className="game-log-panel"><GameLog logs={gameState.logs} onSendMessage={handleSendMessage} /></div>
             </aside>
           </main>
+
+          {showPurchase && purchaseTile && currentPlayer && <PropertyPurchase
+            key={purchaseKey}
+            tile={purchaseTile}
+            cash={gameState.players.find(player => player.id === currentPlayer.id)?.money ?? currentPlayer.money}
+            onClose={() => setDismissedPurchase(purchaseKey)}
+            onBuy={() => handleBuyProperty(purchaseTile.id)}
+            onDecline={handleDeclineProperty}
+          />}
 
           {/* Property Management Deed Modal */}
           {isPropertyModalOpen && !isRollingDice && !isDiceSettling && !isMoving && (

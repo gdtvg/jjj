@@ -1,5 +1,5 @@
 import React from 'react';
-import { Landmark, Handshake, Dices, Banknote, ArrowRight } from 'lucide-react';
+import { Landmark, Handshake, Dices, Banknote, ArrowRight, Box } from 'lucide-react';
 import { BOARD_TILES } from '../data/monopolyBoard';
 import { GameState, Player } from '../types/game';
 import { playSound } from '../utils/sound';
@@ -117,6 +117,7 @@ interface ActionBarProps {
   activity?: 'rolling' | 'result' | 'moving' | null;
   onRollDice: () => void;
   onBuyProperty: (tileId: number) => void;
+  onPreviewProperty: () => void;
   onDeclineProperty: () => void;
   onPayJailFine: () => void;
   onUseJailCard: () => void;
@@ -132,6 +133,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
   onRollDice,
   activity,
   onBuyProperty,
+  onPreviewProperty,
   onDeclineProperty,
   onPayJailFine,
   onUseJailCard,
@@ -253,6 +255,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
 
             {gameState.phase === 'ACTION' && currentTile && !currentTileProp?.ownerId && (
               <>
+                <button onClick={onPreviewProperty} className="cursor-pointer px-3 py-2 rounded-xl border border-white/20 text-xs flex items-center gap-1.5"><Box size={15} />3D-Vorschau</button>
                 <button
                   onClick={() => {
                     playSound('money');
