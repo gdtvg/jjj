@@ -374,7 +374,7 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
     sceneRef.current = scene;
 
     // 2. Camera
-    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 140);
     camera.position.set(0, 16, 18);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
@@ -748,12 +748,14 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
       const w = Math.max(1, container.clientWidth);
       const h = Math.max(1, container.clientHeight);
       cameraRef.current.aspect = w / h;
+      cameraRef.current.fov = Math.max(46, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(32)) / (w / h))));
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(container);
+    handleResize();
 
     // 10. Animation Loop
     let animationFrameId: number;
@@ -777,6 +779,9 @@ export const ThreeBoardScene: React.FC<ThreeBoardSceneProps> = ({
         const targetPosition = liveRef.current.closeup ? closePosition : cameraPosTargetRef.current;
         const lookTarget = liveRef.current.closeup ? new THREE.Vector3(0, 0.65, 0) : cameraTargetRef.current;
         const blend = 1 - Math.exp(-delta * 6);
+        const overviewFov = Math.max(46, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(32)) / camera.aspect)));
+        camera.fov = THREE.MathUtils.lerp(camera.fov, liveRef.current.closeup ? 40 : overviewFov, blend);
+        camera.updateProjectionMatrix();
         camera.position.lerp(targetPosition, blend);
         lookAtRef.current.lerp(lookTarget, blend);
         camera.lookAt(lookAtRef.current);

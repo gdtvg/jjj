@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GameClient } from './lib/gameClient';
-import { Trophy, Copy, Check, Volume2, VolumeX, Maximize, Minimize, Crown } from 'lucide-react';
+import { Trophy, Copy, Check, Volume2, VolumeX, Maximize, Minimize, Crown, PanelRight, MoreHorizontal, X, LogOut } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { hasNewRoll, movementDuration, ROLL_DURATION } from './utils/gamePresentation';
 import { Board } from './components/Board';
@@ -34,6 +34,8 @@ export default function App() {
   const [isMoving, setIsMoving] = useState(false);
   const [rollValues, setRollValues] = useState<[number, number]>([1, 1]);
   const [isRollingDice, setIsRollingDice] = useState(false);
+  const [infoPanelOpen, setInfoPanelOpen] = useState(false);
+  const [infoTab, setInfoTab] = useState<'players' | 'log'>('players');
   const [boardMode, setBoardMode] = useState<'3D' | '2D'>('3D');
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
 
@@ -378,7 +380,7 @@ export default function App() {
 
   return (
     <div
-      className="h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans select-none selection:bg-amber-500 selection:text-slate-950 relative"
+      className="app-shell overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans select-none selection:bg-amber-500 selection:text-slate-950 relative"
       style={{
         backgroundImage: `linear-gradient(to bottom, rgba(6, 9, 18, 0.88), rgba(6, 9, 18, 0.95)), url(${ASSETS.penthouseBg})`,
         backgroundSize: 'cover',
@@ -558,135 +560,41 @@ export default function App() {
       {view === 'GAME' && gameState && currentPlayer && (
         <div className="game-workspace h-full w-full flex flex-col overflow-hidden">
           {/* Top Sleek Header Bar */}
-          <header className="min-h-12 py-1 bg-slate-900/95 border-b border-slate-800 px-4 pl-4 md:px-6 flex flex-wrap gap-2 items-center justify-between shrink-0 shadow-md backdrop-blur-md">
-            {/* Left: Brand & Room Tag */}
-            <div className="flex items-center gap-3">
-              <Crown size={19} className="text-amber-200" />
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-black tracking-tight text-white">MONOPOLY</span>
-                <span className="text-slate-600">·</span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(gameState.roomId);
-                    setCopiedLink(true);
-                    playSound('click');
-                    setTimeout(() => setCopiedLink(false), 2000);
-                  }}
-                  className="cursor-pointer text-[11px] font-mono font-bold bg-slate-950 border border-slate-700 px-2 py-0.5 rounded text-amber-400 hover:bg-slate-800 transition-colors flex items-center gap-1"
-                  title="Click to copy room code"
-                >
-                  <span>Raum</span>
-                  <b>#{gameState.roomId}</b>
-                  <span className="text-[9px] text-slate-400">{copiedLink ? <Check size={12} /> : <Copy size={12} />}</span>
-                </button>
-              </div>
+          <header className="game-header">
+            <div className="game-brand">
+              <Crown size={18} className="text-amber-200 shrink-0" />
+              <span className="game-brand-name">MONOPOLY</span>
+              <button className="room-code" title="Raumcode kopieren" onClick={() => {
+                navigator.clipboard.writeText(gameState.roomId).then(() => {
+                  setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000);
+                }).catch(() => triggerError('Raumcode: ' + gameState.roomId));
+              }}><span>#{gameState.roomId}</span>{copiedLink ? <Check size={12} /> : <Copy size={12} />}</button>
             </div>
-
-            {/* Center: Quick Turn Ticker */}
-            <div className="hidden md:flex items-center gap-2 text-xs">
-              <span className="text-slate-400">Am Zug:</span>
-              <span
-                className="font-black flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-950 border border-slate-800"
-                style={{ color: gameState.players[gameState.activePlayerIndex]?.color }}
-              >
-                <span>{gameState.players[gameState.activePlayerIndex]?.token}</span>
-                <span>{gameState.players[gameState.activePlayerIndex]?.name}</span>
-              </span>
-            </div>
-
-            {/* Right: Quick Controls & Cash Indicator */}
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => {
-                  playSound('click');
-                  setIsLeaderboardOpen(true);
-                }}
-                className="cursor-pointer text-xs bg-slate-950 hover:bg-slate-800 border border-amber-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1 text-amber-300 font-bold transition-colors"
-                title="View Cloud Leaderboard"
-              >
-                <Trophy size={15} />
-                <span className="hidden lg:inline">Rangliste</span>
-              </button>
-
-              <div className="text-xs bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg flex items-center gap-1.5">
-                <span className="text-slate-400">Bargeld</span>
-                <span className="font-mono font-black text-emerald-400">
-                  ${currentPlayer.money}
-                </span>
+            <div className="header-turn"><span>Am Zug</span><strong style={{ color: gameState.players[gameState.activePlayerIndex]?.color }}>{gameState.players[gameState.activePlayerIndex]?.name}</strong></div>
+            <div className="game-header-controls">
+              <span className="header-cash"><span>Bargeld</span><strong>${currentPlayer.money.toLocaleString()}</strong></span>
+              <div className="view-switch" role="group" aria-label="Brettansicht">
+                {(['3D', '2D'] as const).map(mode => <button key={mode} aria-pressed={boardMode === mode} disabled={isRollingDice || isDiceSettling || isMoving} onClick={() => setBoardMode(mode)}>{mode}</button>)}
               </div>
-
-              {/* 3D / 2D View Mode Toggle */}
-              <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-700 text-xs shadow-inner">
-                <button
-                  onClick={() => {
-                    playSound('click');
-                    setBoardMode('3D');
-                  }}
-                  disabled={isRollingDice || isDiceSettling || isMoving}
-                  aria-pressed={boardMode === '3D'}
-                  className={`cursor-pointer px-2.5 py-1 rounded-md font-black transition-all ${
-                    boardMode === '3D'
-                      ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  3D-Tisch
-                </button>
-                <button
-                  onClick={() => {
-                    playSound('click');
-                    setBoardMode('2D');
-                  }}
-                  disabled={isRollingDice || isDiceSettling || isMoving}
-                  aria-pressed={boardMode === '2D'}
-                  className={`cursor-pointer px-2.5 py-1 rounded-md font-black transition-all ${
-                    boardMode === '2D'
-                      ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Spielbrett
-                </button>
-              </div>
-
-              {/* Sound Toggle */}
-              <button
-                onClick={handleToggleSound}
-                className="cursor-pointer p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-xs"
-                title={soundMuted ? 'Unmute Sound' : 'Mute Sound'}
-              >
-                {soundMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-              </button>
-
-              {/* Fullscreen Toggle */}
-              <button
-                onClick={handleToggleFullscreen}
-                className="cursor-pointer p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-xs"
-                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-              >
-                {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
-              </button>
-
-              {/* Leave Game */}
-              <button
-                onClick={() => {
-                  if (confirm('Leave current game?')) {
-                    handleLeaveLobby();
-                  }
-                }}
-                className="cursor-pointer text-xs font-bold text-slate-400 hover:text-rose-400 px-2 py-1 rounded hover:bg-slate-800 transition-colors"
-              >
-                Verlassen
-              </button>
+              <button className="sidebar-toggle header-icon-button" aria-label="Spieler und Chat öffnen" title="Spieler und Chat" aria-expanded={infoPanelOpen} aria-controls="game-info-panel" onClick={() => setInfoPanelOpen(open => !open)}><PanelRight size={17} /></button>
+              <details className="game-more">
+                <summary className="header-icon-button" aria-label="Weitere Spieloptionen" title="Weitere Spieloptionen"><MoreHorizontal size={20} /></summary>
+                <div className="game-more-menu">
+                  <button onClick={event => { setIsLeaderboardOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }}><Trophy size={16} /> Rangliste</button>
+                  <button onClick={handleToggleSound}>{soundMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}{soundMuted ? 'Ton einschalten' : 'Ton ausschalten'}</button>
+                  <button onClick={handleToggleFullscreen}>{isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}{isFullscreen ? 'Vollbild beenden' : 'Vollbild'}</button>
+                  <button onClick={() => { if (confirm('Das aktuelle Spiel verlassen?')) handleLeaveLobby(); }}><LogOut size={16} /> Spiel verlassen</button>
+                </div>
+              </details>
             </div>
           </header>
 
           {/* Main Maximized Game View (Board Left, Sidebar Right) */}
-          <main className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 p-2 sm:p-3 overflow-hidden">
+          <main className="game-main">
             {/* Center / Board Stage */}
-            <section className="flex-1 min-h-0 flex flex-col items-center justify-between gap-2 overflow-hidden">
+            <section className="game-stage">
               {/* Maximized Board Container (3D or 2D) */}
-              <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+              <div className="game-board-region">
                 {boardMode === '3D' ? (
                   <ThreeBoardScene
                     localPlayerId={currentPlayer.id}
@@ -716,7 +624,7 @@ export default function App() {
               </div>
 
               {/* Tactical Action Bar */}
-              <div inert={isRollingDice || isDiceSettling || isMoving} className={`w-full max-w-[calc(100vh-130px)] shrink-0 ${isRollingDice || isDiceSettling || isMoving ? "opacity-50" : ""}`}>
+              <div inert={isRollingDice || isDiceSettling || isMoving} className={`game-actions-region ${isRollingDice || isDiceSettling || isMoving ? "opacity-50" : ""}`}>
                 <ActionBar
                   gameState={gameState}
                   currentPlayer={currentPlayer}
@@ -735,14 +643,15 @@ export default function App() {
             </section>
 
             {/* Right Maximized Sidebar (Scoreboard + Live Ticker) */}
-            <aside className="game-sidebar w-full lg:w-80 xl:w-88 flex flex-row lg:flex-col gap-2.5 shrink-0 h-36 lg:h-full min-w-0 overflow-hidden">
-              {/* Tycoon Leaderboard Card */}
-              <div className="w-[45%] lg:w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-3 shadow-xl backdrop-blur-xs shrink-0 overflow-y-auto">
-                <PlayerScoreboard gameState={gameState} currentPlayer={currentPlayer} />
+            {infoPanelOpen && <button className="info-panel-scrim" aria-label="Spieler und Chat schließen" onClick={() => setInfoPanelOpen(false)} />}
+            <aside id="game-info-panel" aria-label="Spieler und Spielverlauf" className={`game-sidebar ${infoPanelOpen ? 'is-open' : ''}`} data-tab={infoTab} onKeyDown={event => { if (event.key === 'Escape') setInfoPanelOpen(false); }}>
+              <div className="info-panel-tabs">
+                <button aria-pressed={infoTab === 'players'} onClick={() => setInfoTab('players')}>Spieler</button>
+                <button aria-pressed={infoTab === 'log'} onClick={() => setInfoTab('log')}>Verlauf & Chat</button>
+                <button className="info-panel-close" aria-label="Spieler und Chat schließen" onClick={() => setInfoPanelOpen(false)}><X size={18} /></button>
               </div>
-
-              {/* Live Ticker & Chat Box */}
-              <GameLog logs={gameState.logs} onSendMessage={handleSendMessage} />
+              <div className="game-players-panel"><PlayerScoreboard gameState={gameState} currentPlayer={currentPlayer} /></div>
+              <div className="game-log-panel"><GameLog logs={gameState.logs} onSendMessage={handleSendMessage} /></div>
             </aside>
           </main>
 

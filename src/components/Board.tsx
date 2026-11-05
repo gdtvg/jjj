@@ -57,6 +57,16 @@ export const Board: React.FC<BoardProps> = ({
   canRoll,
   isRolling = false,
 }) => {
+  const boardHostRef = useRef<HTMLDivElement>(null);
+  const [boardScale, setBoardScale] = useState(1);
+  useEffect(() => {
+    const host = boardHostRef.current;
+    if (!host) return;
+    const resize = () => setBoardScale(Math.max(0.1, Math.min(1, (host.clientWidth - 24) / 740, (host.clientHeight - 24) / 740)));
+    const observer = new ResizeObserver(resize);
+    observer.observe(host); resize();
+    return () => observer.disconnect();
+  }, []);
   const [hoveredTileId, setHoveredTileId] = useState<number | null>(null);
   const [isIsometric, setIsIsometric] = useState(true);
   const activePlayer = gameState.players[gameState.activePlayerIndex];
@@ -310,7 +320,7 @@ export const Board: React.FC<BoardProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden">
+    <div ref={boardHostRef} className="relative w-full h-full min-w-0 min-h-0 flex flex-col items-center justify-center overflow-hidden">
       {/* 3D Isometric View Perspective Switch */}
       <div className="absolute top-2 right-4 z-30 flex items-center gap-2 bg-slate-900/80 backdrop-blur-md px-3 py-1 rounded-full border border-slate-700 text-xs shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -329,16 +339,16 @@ export const Board: React.FC<BoardProps> = ({
 
       {/* Outer 3D Perspective Wrapper */}
       <div
-        className="relative transition-transform duration-700 ease-out flex items-center justify-center"
+        className="relative w-[680px] h-[680px] shrink-0 transition-transform duration-300 ease-out flex items-center justify-center"
         style={{
           perspective: '1400px',
           transformStyle: 'preserve-3d',
-          transform: isIsometric ? 'rotateX(24deg) rotateZ(-3deg)' : 'rotateX(0deg) rotateZ(0deg)',
+          transform: `scale(${boardScale}) ${isIsometric ? 'rotateX(24deg) rotateZ(-3deg)' : 'rotateX(0deg) rotateZ(0deg)'}`,
         }}
       >
         {/* Physical Board Bezel with 3D Extrusion Shadows */}
         <div
-          className="relative w-[540px] sm:w-[620px] md:w-[680px] xl:w-[740px] aspect-square rounded-3xl p-3 select-none transition-all duration-500"
+          className="relative w-[680px] h-[680px] shrink-0 aspect-square rounded-3xl p-3 select-none transition-all duration-500"
           style={{
             background: 'linear-gradient(135deg, #3b1d09 0%, #1f0f04 50%, #2a1407 100%)',
             boxShadow: isIsometric

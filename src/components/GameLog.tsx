@@ -146,7 +146,7 @@ export const GameLog: React.FC<GameLogProps> = ({ logs, onSendMessage }) => {
           onChange={(e) => setChatInput(e.target.value)}
           placeholder="Send a chat message..."
           maxLength={150}
-          className="flex-1 bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs focus:outline-hidden focus:border-amber-400"
+          className="flex-1 min-w-0 bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-1.5 text-xs focus:outline-hidden focus:border-amber-400"
         />
         <button
           type="submit"
